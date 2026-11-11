@@ -135,3 +135,5 @@ test_*.t
 
 # Go
 resource/reapi/bindings/go/src/test/main
+
+.opencode/

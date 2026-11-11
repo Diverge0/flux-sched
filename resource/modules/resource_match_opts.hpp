@@ -31,7 +31,10 @@ class resource_opts_t : public optmgr_parse_t {
         LOAD_FILE = 1,
         LOAD_FORMAT = 10,
         LOAD_ALLOWLIST = 20,
+
+        //is this the match policy relevant for me?
         MATCH_POLICY = 30,      // policy
+        
         MATCH_FORMAT = 40,      // match-format
         MATCH_SUBSYSTEMS = 50,  // subsystem
         RESERVE_VTX_VEC = 60,   // reserve-vtx-vec

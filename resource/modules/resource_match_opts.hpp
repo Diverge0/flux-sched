@@ -34,6 +34,7 @@ class resource_opts_t : public optmgr_parse_t {
 
         // is this where the match policy is selected?
         MATCH_POLICY = 30,      // policy
+        
         MATCH_FORMAT = 40,      // match-format
         MATCH_SUBSYSTEMS = 50,  // subsystem
         

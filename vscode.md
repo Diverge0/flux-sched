@@ -26,7 +26,6 @@ When your container is built, when you open `Terminal -> New Terminal`, and you'
 The dependencies for building flux-sched are installed. Try building - it will work without a hitch!
 
 ```bash
-./autogen.sh
 ./configure --prefix=/usr/local
 make
 # This will install in the container to /usr/local

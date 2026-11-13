@@ -3,6 +3,10 @@
   "dockerFile": "Dockerfile",
   "context": "../",
 
+  "features": {
+		"ghcr.io/danzilberdan/devcontainers/opencode:0": {}
+	},
+
   "customizations": {
     "vscode": {
       "settings": {

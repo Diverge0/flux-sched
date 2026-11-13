@@ -22,7 +22,8 @@ RUN sudo apt-get -qq install -y --no-install-recommends \
         libyaml-cpp-dev \
         libedit-dev \
         ninja-build \
-        curl
+        curl \
+        nano
 
 # Assuming installing to /usr/local
 ENV LD_LIBRARY_PATH=/usr/lib:/usr/local/lib

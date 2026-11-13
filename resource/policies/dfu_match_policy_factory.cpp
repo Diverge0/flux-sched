@@ -20,6 +20,7 @@ extern "C" {
 namespace Flux {
 namespace resource_model {
 
+// These are the known match policies. I need to add my policy here later
 const std::map<std::string, std::string> policies =
     {{"first", "policy=high node_centric=true stop_on_1_matches=true"},
      {"firstnodex", "policy=high node_centric=true node_exclusive=true stop_on_1_matches=true"},

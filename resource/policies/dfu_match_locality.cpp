@@ -19,6 +19,7 @@ extern "C" {
 namespace Flux {
 namespace resource_model {
 
+// the entire match poliy is a callback object that is calles upon by the DFU traverser (dfu_impl_t)
 greater_interval_first_t::greater_interval_first_t ()
 {
 }
@@ -42,19 +43,37 @@ greater_interval_first_t::~greater_interval_first_t ()
 {
 }
 
+// callback called at the end of the graph traversal. It is called on the Root Vertex after the graph traversal
+// called in function dfu_impl_t::resolve_graph (dfu_impl.cpp:1057)
 int greater_interval_first_t::dom_finish_graph (
+    // an interner is a lookup-table that stores each distinct string once and returns the canonical handle to it
+    // type explained in data_std.hpp
+    // effectively subsystem_t is a 1-Byte integer handle that compares against the intern table of subsystem strings
     subsystem_t subsystem,
+
+    // this represents the desired job resources, though i don't exactly know how they look like...
     const std::vector<Flux::Jobspec::Resource> &resources,
+
+    // this is the resource graph we are working on. It is implemented as a BoostLib adjacentList
     const resource_graph_t &g,
+
+    // data container: per-subtree "condidate pool + selection state"
+    // the traverser fills it, the policy reads / decides on
     scoring_api_t &dfu)
 {
+    // Interval Container Library (ICL)
     using namespace boost::icl;
     int score = MATCH_MET;
+    // a C++ functor for interval comparison
     fold::interval_greater comp;
 
+    // iterate through resources
     for (auto &resource : resources) {
+        // how many of the resource type are available
         unsigned int qc = dfu.qualified_count (subsystem, resource.type);
+        // calculate the count of the resource that should be allocated based on number of available resources and the desired resource count (min, max, ...) in the JobSpec
         unsigned int count = calc_count (resource, qc);
+        // resources not available
         if (count == 0) {
             score = MATCH_UNMET;
             break;

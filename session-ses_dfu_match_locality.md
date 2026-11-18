@@ -2,7 +2,7 @@
 
 **Session ID:** ses_e1bbfb572ffesO71tU9QmQPQEo
 **Created:** 11/16/2026, 12:06:21 PM
-**Updated:** 11/16/2026, 12:36:27 PM
+**Updated:** 11/18/2026, 3:42:33 PM
 
 ---
 
@@ -3438,6 +3438,2446 @@ dfu.choose_accum_best_k (subsystem, resource.type, count, comp);
 4. Register: `#include` the header in `dfu_match_policy_factory.hpp`, add a branch in `create_match_cb` (plus an entry in the `policies` map for a named policy), and add the `.hpp`/`.cpp` to `resource/CMakeLists.txt`.
 
 Two quirks worth knowing if you copy this file: the `comp` object (and its `ivset`) is reused across resource types in the `dom_finish_graph` loop without clearing, so one type's scores can bridge gaps in another type's runs; and the intra-block order is unspecified, since all egroups in one contiguous run are equivalent to the comparator.
+
+---
+
+## User
+
+please explain all the arguments for the function greater_interval_first_t::dom_finish_graph
+
+---
+
+## Assistant (Plan · alias-code · 104.4s)
+
+_Thinking:_
+
+The user is asking for an explanation of all the arguments of `greater_interval_first_t::dom_finish_graph`. This is a read-only/explanation request in plan mode.
+
+Signature (dfu_match_locality.cpp:45-49):
+```cpp
+int greater_interval_first_t::dom_finish_graph (
+    subsystem_t subsystem,
+    const std::vector<Flux::Jobspec::Resource> &resources,
+    const resource_graph_t &g,
+    scoring_api_t &dfu)
+```
+
+I already have deep context on all of these from previous work:
+
+1. `subsystem_t subsystem` — the dominant subsystem (e.g., "containment"), i.e., the resource graph partition that the matcher is operating on. Defined in resource/schema (subsystem_t is essentially a string identifier, probably a derived class of std::string). Let me check what subsystem_t actually is — from matcher.hpp: `subsystem_t dom_subsystem() const;` and in matcher_data_t, `std::vector<subsystem_t> m_subsystems`. I believe it's a typedef. Let me check resource/schema to be precise. I haven't yet read the exact definition of subsystem_t. I should quickly check resource_base.hpp / resource_graph.hpp / data_std.hpp.
+
+2. `resources` — the vector of resource requirements from the jobspec's "resources" section (Flux::Jobspec::Resource), i.e., what the job is asking for. From dfu_match_cb.hpp:56: "vector of resources to be matched (resource section of a jobspec)".
+
+3. `g` — the filtered resource graph (resource_graph_t = a vector of resource_base_t indexed by vtx_t). "Filtered" = narrowed down to the selected subsystem.
+
+4. `dfu` — the scoring_api_t object, the accumulated candidate pool for the whole graph (all egroups discovered during traversal, keyed by subsystem → resource type → evals_t). Non-const because the policy calls choose_* and set_overall_score on it.
+
+Let me quickly check the definition of subsystem_t to be precise. Let me grep.
+
+Also, I could explain where each argument comes from at the call site (dfu_impl.cpp:1057: `m_match->dom_finish_graph (dom, resources, *m_graph, dfu)`). Here `dom = m_match->dom_subsystem()`, resources = the filtered jobspec resources, *m_graph = the filtered graph, dfu = the root-level scoring API that has been accumulated during the whole traversal.
+
+Also, it's worth explaining what `dfu` specifically contains when dom_finish_graph is called: the root-level egroups (for each direct child type of the root, one egroup per child vertex that qualified), because resolve() merges/enforces on the way up: unconstrained vertices merge into their parent's dfu, and constrained vertices add their own egroups to the parent's explore. By the time we get to the root, dfu contains the final candidate pool, and after dom_finish_graph, has_root/has_remaining/enforce_constrained finalize it.
+
+Let me verify the definition of subsystem_t and the exact types. I'll grep for "typedef.*subsystem_t" or "using subsystem_t".
+
+
+**Tool: grep**
+
+**Input:**
+```json
+{
+  "pattern": "subsystem_t\\s*=|using subsystem_t|typedef.*subsystem_t",
+  "path": "/workspaces/flux-sched/resource"
+}
+```
+
+**Output:**
+```
+Found 1 matches
+/workspaces/flux-sched/resource/schema/data_std.hpp:
+  Line 34: using subsystem_t = intern::interned_string<intern::dense_storage<subsystem_tag, uint8_t>>;
+
+```
+
+**Tool: grep**
+
+**Input:**
+```json
+{
+  "pattern": "using resource_graph_t|typedef.*resource_graph_t|using vtx_t|typedef.*vtx_t",
+  "path": "/workspaces/flux-sched/resource"
+}
+```
+
+**Output:**
+```
+Found 3 matches
+/workspaces/flux-sched/resource/schema/resource_graph.hpp:
+  Line 29: using resource_graph_t = boost::adjacency_list<boost::vecS,
+
+  Line 38: using vtx_t = boost::graph_traits<resource_graph_t>::vertex_descriptor;
+
+
+/workspaces/flux-sched/resource/readers/resource_spec_grug.hpp:
+  Line 56: using vtx_type_map_t = boost::property_map<gg_t, pgen_t>::type;
+
+```
+
+---
+
+## Assistant (Plan · alias-code · 9.1s)
+
+_Thinking:_
+
+Let's check the definitions in resource_graph.hpp and data_std.hpp to get the exact types.
+
+
+**Tool: read**
+
+**Input:**
+```json
+{
+  "filePath": "/workspaces/flux-sched/resource/schema/resource_graph.hpp",
+  "offset": 20,
+  "limit": 25
+}
+```
+
+**Output:**
+```
+<path>/workspaces/flux-sched/resource/schema/resource_graph.hpp</path>
+<type>file</type>
+<content>
+20: enum class emit_format_t {
+21:     GRAPHVIZ_DOT,
+22:     GRAPH_ML,
+23: };
+24: 
+25: using pinfra_t = pool_infra_t resource_pool_t::*;
+26: using pname_t = std::string resource_t::*;
+27: using rname_t = std::string resource_relation_t::*;
+28: using rinfra_t = relation_infra_t resource_relation_t::*;
+29: using resource_graph_t = boost::adjacency_list<boost::vecS,
+30:                                                boost::vecS,
+31:                                                boost::bidirectionalS,
+32:                                                resource_pool_t,
+33:                                                resource_relation_t,
+34:                                                std::string>;
+35: 
+36: using vtx_infra_map_t = boost::property_map<resource_graph_t, pinfra_t>::type;
+37: using edg_infra_map_t = boost::property_map<resource_graph_t, rinfra_t>::type;
+38: using vtx_t = boost::graph_traits<resource_graph_t>::vertex_descriptor;
+39: using edg_t = boost::graph_traits<resource_graph_t>::edge_descriptor;
+40: using vtx_iterator_t = boost::graph_traits<resource_graph_t>::vertex_iterator;
+41: using edg_iterator_t = boost::graph_traits<resource_graph_t>::edge_iterator;
+42: using out_edg_iterator_t = boost::graph_traits<resource_graph_t>::out_edge_iterator;
+43: using f_edg_infra_map_t = boost::property_map<resource_graph_t, rinfra_t>::type;
+44: using f_vtx_infra_map_t = boost::property_map<resource_graph_t, pinfra_t>::type;
+
+(Showing lines 20-44 of 59. Use offset=45 to continue.)
+</content>
+```
+
+**Tool: read**
+
+**Input:**
+```json
+{
+  "filePath": "/workspaces/flux-sched/resource/schema/data_std.hpp",
+  "offset": 20,
+  "limit": 25
+}
+```
+
+**Output:**
+```
+<path>/workspaces/flux-sched/resource/schema/data_std.hpp</path>
+<type>file</type>
+<content>
+20: 
+21: namespace Flux {
+22: namespace resource_model {
+23: 
+24: // We create an x_checker planner for each resource vertex for quick exclusivity
+25: // checking. We update x_checker for all of the vertices involved in each
+26: // job allocation/reservation -- subtract 1 from x_checker planner for the
+27: // scheduled span. Any vertex with less than X_CHECKER_NJOBS available in its
+28: // x_checker cannot be exclusively allocated or reserved.
+29: const char *const X_CHECKER_JOBS_STR = "jobs";
+30: const int64_t X_CHECKER_NJOBS = 0x40000000;
+31: 
+32: constexpr uint64_t subsystem_id{0};
+33: struct subsystem_tag {};
+34: using subsystem_t = intern::interned_string<intern::dense_storage<subsystem_tag, uint8_t>>;
+35: extern subsystem_t containment_sub;
+36: 
+37: constexpr uint64_t resource_type_id{1};
+38: struct resource_type_tag {};
+39: using resource_type_t = intern::interned_string<intern::dense_storage<resource_type_tag, uint16_t>>;
+40: extern resource_type_t slot_rt;
+41: extern resource_type_t xor_slot_rt;
+42: extern resource_type_t cluster_rt;
+43: extern resource_type_t rack_rt;
+44: extern resource_type_t node_rt;
+
+(Showing lines 20-44 of 63. Use offset=45 to continue.)
+</content>
+```
+
+---
+
+## Assistant (Plan · alias-code · 15.0s)
+
+_Thinking:_
+
+Now I have all the accurate type information:
+
+- `subsystem_t` = interned string (resource/schema/data_std.hpp:34) — a lightweight handle to a subsystem name (e.g., "containment").
+- `resource_graph_t` = a Boost adjacency list with `resource_pool_t` as vertex data and `resource_relation_t` as edge data (resource_graph.hpp:29). `vtx_t`/`edg_t` are vertex/edge descriptors.
+- `Flux::Jobspec::Resource` — the jobspec resource struct. Let me recall its fields: type, label, min, max, operator, with (children), node... I have a grasp of this from the jobspec.hpp in libjobspec. I saw it used in the code: resource.type, resource.with, resource.label. To be precise about the fields, let me quickly check the struct in jobspec.hpp.
+
+
+**Tool: grep**
+
+**Input:**
+```json
+{
+  "pattern": "struct Resource",
+  "path": "/workspaces/flux-sched/resource/libjobspec"
+}
+```
+
+**Output:**
+```
+No files found
+```
+
+---
+
+## Assistant (Plan · alias-code · 4.5s)
+
+_Thinking:_
+
+Let's try searching for the definition of the Jobspec::Resource struct.
+
+
+**Tool: grep**
+
+**Input:**
+```json
+{
+  "pattern": "struct Resource|namespace Jobspec",
+  "path": "/workspaces/flux-sched",
+  "include": "*.hpp"
+}
+```
+
+**Output:**
+```
+Found 10 matches
+/workspaces/flux-sched/resource/libjobspec/constraint.hpp:
+  Line 26: namespace Jobspec {
+
+  Line 38: }  // namespace Jobspec
+
+
+/workspaces/flux-sched/resource/libjobspec/rank_constraint.hpp:
+  Line 20: namespace Jobspec {
+
+  Line 39: }  // namespace Jobspec
+
+
+/workspaces/flux-sched/resource/libjobspec/jobspec.hpp:
+  Line 45: namespace Jobspec {
+
+  Line 125: }  // namespace Jobspec
+
+
+/workspaces/flux-sched/resource/libjobspec/hostlist_constraint.hpp:
+  Line 20: namespace Jobspec {
+
+  Line 39: }  // namespace Jobspec
+
+
+/workspaces/flux-sched/resource/libjobspec/parse_error.hpp:
+  Line 22: namespace Jobspec {
+
+  Line 33: }  // namespace Jobspec
+
+```
+
+---
+
+## Assistant (Plan · alias-code · 4.7s)
+
+_Thinking:_
+
+Let me read jobspec.hpp to find the Resource struct.
+
+
+**Tool: read**
+
+**Input:**
+```json
+{
+  "filePath": "/workspaces/flux-sched/resource/libjobspec/jobspec.hpp",
+  "offset": 45,
+  "limit": 85
+}
+```
+
+**Output:**
+```
+<path>/workspaces/flux-sched/resource/libjobspec/jobspec.hpp</path>
+<type>file</type>
+<content>
+45: namespace Jobspec {
+46: 
+47: enum class tristate_t { FALSE, TRUE, UNSPECIFIED };
+48: 
+49: class Resource {
+50:    public:
+51:     resource_model::resource_type_t type;
+52:     struct {
+53:         unsigned min;
+54:         unsigned max = std::numeric_limits<unsigned int>::max ();
+55:         char oper = '+';
+56:         int operand = 1;
+57:     } count;
+58:     std::string unit;
+59:     std::string label;
+60:     std::string id;
+61:     tristate_t exclusive = tristate_t::UNSPECIFIED;
+62:     std::vector<Resource> with;
+63: 
+64:     // user_data has no library internal usage, it is
+65:     // entirely for the convenience of external code
+66:     std::unordered_map<resource_model::resource_type_t, int64_t> user_data;
+67: 
+68:     Resource (const YAML::Node &);
+69: };
+70: 
+71: class Task {
+72:    public:
+73:     std::vector<std::string> command;
+74:     std::string slot;
+75:     std::unordered_map<std::string, std::string> count;
+76:     std::string distribution;
+77:     std::unordered_map<std::string, std::string> attributes;
+78: 
+79:     Task (const YAML::Node &);
+80: };
+81: 
+82: struct System {
+83:     double duration = 0.0f;
+84:     std::string queue = "";
+85:     std::string cwd = "";
+86:     std::unordered_map<std::string, std::string> environment;
+87:     std::unordered_map<std::string, YAML::Node> optional;
+88:     std::shared_ptr<Constraint> constraint = nullptr;
+89: 
+90:     System () = default;
+91:     System (const System &s) = delete;  // Force to use move ctor
+92:     System (System &&s) = default;
+93:     System &operator= (const System &&a) = delete;  // Force to use move operator=
+94:     System &operator= (System &&a) = default;
+95: };
+96: 
+97: struct Attributes {
+98:     YAML::Node user;
+99:     System system;
+100: 
+101:     Attributes () = default;
+102:     Attributes (const Attributes &a) = delete;  // Force to use move ctor
+103:     Attributes (Attributes &&a) = default;
+104:     Attributes &operator= (const Attributes &&a) = delete;
+105:     Attributes &operator= (Attributes &&a) = default;
+106: };
+107: 
+108: class Jobspec {
+109:    public:
+110:     unsigned int version;
+111:     std::vector<Resource> resources;
+112:     std::vector<Task> tasks;
+113:     Attributes attributes;
+114: 
+115:     Jobspec () = default;
+116:     Jobspec (const YAML::Node &);
+117:     Jobspec (std::istream &is);
+118:     Jobspec (const std::string &s);
+119: };
+120: 
+121: std::ostream &operator<< (std::ostream &s, Jobspec const &js);
+122: std::ostream &operator<< (std::ostream &s, Resource const &r);
+123: std::ostream &operator<< (std::ostream &s, Task const &t);
+124: 
+125: }  // namespace Jobspec
+126: }  // namespace Flux
+127: 
+128: #endif  // JOBSPEC_HPP
+
+(End of file - total 128 lines)
+</content>
+```
+
+---
+
+## Assistant (Plan · alias-code · 309.0s)
+
+_Thinking:_
+
+With this, I now have all the information I need to precisely explain each argument of `dom_finish_graph`. The function signature (dfu_match_locality.cpp:45-49):
+
+```cpp
+int greater_interval_first_t::dom_finish_graph (
+    subsystem_t subsystem,
+    const std::vector<Flux::Jobspec::Resource> &resources,
+    const resource_graph_t &g,
+    scoring_api_t &dfu);
+```
+
+Call site: dfu_impl.cpp:1057, inside `resolve_graph`:
+```cpp
+subsystem_t dom = m_match->dom_subsystem ();
+...
+if (m_match->dom_finish_graph (dom, resources, *m_graph, dfu) != 0)
+```
+
+Argument 1: `subsystem_t subsystem`
+- Type: interned string handle (data_std.hpp:34), a lightweight identifier for a "subsystem" — that is, a named partition of the resource graph defined by edge relation types (e.g., "containment" — the physical containment hierarchy: cluster → rack → node → core/gpu).
+- Value: the dominant subsystem of the matcher — the subsystem registered first via `add_subsystem()` (matcher.hpp:57); here passed as `dom = m_match->dom_subsystem()`.
+- Use within the function: used as the key into dfu's per-subsystem map — `dfu.qualified_count(subsystem, resource.type)`, `dfu.transform(...)`, `dfu.choose_accum_best_k(...)` all reference `m_ssys_map[subsystem][type]` (scoring_api.hpp:101). In other words, it selects which subsystem's candidate pool to query/modify. (If a policy has multiple subsystems, only the dominant one is passed here; the auxiliary subsystems have their own aux_* hooks.)
+
+Argument 2: `const std::vector<Flux::Jobspec::Resource> &resources`
+- The job's requirement: the `resources` section of the jobspec (jobspec.hpp:111), parsed into a vector of `Resource` (jobspec.hpp:49-69): each entry has `type`, `count{min,max,oper,operand}` (e.g., min=1, oper='*', operand=4 → 1×4 per node), `unit`, `label`, `id`, `exclusive`, and a recursive `with` (nested child resources).
+- For example, for `flux run -C4` on nodes: `node: {min:1, max:1} with {core: {min:4, max:4}}`.
+- Used in a loop: for each top-level resource entry, the policy determines how many units are needed (`calc_count(resource, qc)`), and which candidate egroups to select. Note that this is the jobspec's *request*, not what's available.
+
+Argument 3: `const resource_graph_t &g`
+- Type: Boost adjacency list (resource_graph.hpp:29): a vector of vertices whose data is `resource_pool_t` (derived from `resource_base_t`, holding `id`, `type`, `size`, etc.), with `resource_relation_t` edges holding relation type/subsystem info, plus a std::string graph property.
+- "Filtered" graph: the traverser has pruned it down to the selected subsystem (only vertices/edges belonging to the dominant subsystem are traversed), and it also carries runtime state: `idata.colors[dom]` (white/gray/black traversal colors), `idata.set_for_trav_update(...)` allocation marks, and per-vertex `schedule.plans` (planner) for availability checks.
+- Used in this function: effectively only as a type in the interface; `dom_finish_graph` doesn't actually read `g` in the locality policy (it's unused in the body!). Looking at the code: `dom_finish_graph` only uses `subsystem`, `resources`, and `dfu` — `g` is unused. Correct: lines 55-67 only reference resources, dfu, and subsystem. So note that `g` is available for policies that need graph structure (e.g., to check topology/proximity) but is unused here.
+- vtx_t/edg_t are the descriptor types.
+
+Argument 4: `scoring_api_t &dfu`
+- Non-const reference to the root-level candidate pool — the accumulated result of the entire traversal: a map of subsystem → resource_type → `detail::evals_t` (scoring_api.hpp:101), and each evals_t holds a vector of `eval_egroup_t {score, count, needs, exclusive, edges[]}` (edge_eval_api.hpp:32).
+- At this point in the root's `resolve_graph` (dfu_impl.cpp:1049): every vertex in the graph has been visited bottom-up; constrained selections have been enforced at each level; unconstrained egroups have been merged upward; direct-child egroups of the root exist keyed by child type. So dfu contains the final set of candidates from which the job's top-level request must be satisfied.
+- The policy mutates it: `qualified_count` (how many units of type T are available), `transform` (project egroup scores into the comparator's interval set), `choose_accum_best_k` (sort + assign `needs` to the chosen egroups, set the best_k/best_i bookkeeping, set the `hier_constrain_now` flag), `set_overall_score` (record MATCH_MET/MATCH_UNMET for the entire match).
+- After the callback, the traverser runs `has_root`/`has_remaining`/`enforce_constrained` (dfu_impl.cpp:1059-1063) to finalize the allocation of the selected egroups.
+- Why non-const: selection and scoring are writes into this pool.
+
+Return value: 0 on success; -1 with errno=EBUSY on failure (unsatisfiable).
+
+Also worth noting: in `dom_finish_graph`, unlike `dom_finish_vtx`, `dfu` is the whole-graph pool, and there is no per-vertex context (no `u`). This is the "last mile" — the final global selection (e.g., which nodes to use out of all the qualifying nodes).
+
+The user specifically asked: "Please explain all the arguments of the function greater_interval_first_t::dom_finish_graph." So the answer should focus on the four arguments (and possibly the return value). Keep it concise and precise, and attach file:line references.
+
+This is plan mode, but since it's an explanation request, no plan is needed — just answer. The answer should be focused: one section per argument.
+
+
+
+
+`greater_interval_first_t::dom_finish_graph` (dfu_match_locality.cpp:45) has four arguments. It's called exactly once, at the end of the traversal, from `resolve_graph` (dfu_impl.cpp:1057): `m_match->dom_finish_graph (dom, resources, *m_graph, dfu)`.
+
+### 1. `subsystem_t subsystem`
+- **Type:** an interned-string handle (`using subsystem_t = intern::interned_string<...>`, resource/schema/data_std.hpp:34) — a lightweight, cheaply comparable identifier for a *subsystem*, i.e. a named partition of the resource graph defined by edge relation types (e.g. `"containment"` = the physical hierarchy cluster → rack → node → core/gpu).
+- **Value passed:** the matcher's *dominant* subsystem — whichever was registered first via `add_subsystem()` (matcher.hpp:57) — passed as `dom = m_match->dom_subsystem()` (dfu_impl.cpp:1056).
+- **Used for:** selecting which subsystem's candidate pool to read/modify. `scoring_api_t` is keyed `subsystem → resource_type → evals` (scoring_api.hpp:101), so every call in the body — `dfu.qualified_count(subsystem, ...)`, `dfu.transform(subsystem, ...)`, `dfu.choose_accum_best_k(subsystem, ...)` — looks up `m_ssys_map[subsystem][type]`. (Auxiliary subsystems, if a policy registers them, get their own `aux_*` callbacks instead.)
+
+### 2. `const std::vector<Flux::Jobspec::Resource> &resources`
+- **What it is:** the job's requirement — the `resources` section of the jobspec parsed into `Flux::Jobspec::Resource` entries (jobspec.hpp:49-69, 111). Each entry carries:
+  - `type` — resource type string (e.g. `node`, `core`)
+  - `count {min, max, oper, operand}` — the constraint, e.g. `min=1, oper='*', operand=4` means "1 node × 4"
+  - `unit`, `label`, `id`, `exclusive`, and recursively `with` — nested child requirements (e.g. a `node` entry with a `core` child)
+- **Used for:** the loop variable. For each top-level entry the policy computes `qc = dfu.qualified_count(...)` (how many of that type are actually available) then `count = calc_count(resource, qc)` (the effective number of units to select, honoring min/max/operator; 0 means unsatisfiable → `MATCH_UNMET`). It's the *request*, not the inventory — inventory lives in `dfu`.
+
+### 3. `const resource_graph_t &g`
+- **Type:** a Boost adjacency list (resource_graph.hpp:29): vertices are `resource_pool_t` (derived from `resource_base_t` with `id`, `type`, `size`, …; `vtx_t` is the vertex descriptor), edges are `resource_relation_t` carrying the relation/subsystem info, plus a string graph property.
+- **State it carries:** it's the *filtered* graph (pruned to the dominant subsystem) and also the runtime state store — traversal colors `idata.colors[dom]`, allocation marks written by `idata.set_for_trav_update(...)` (dfu_impl.cpp:1110), and per-vertex `schedule.plans` used for availability checks.
+- **Used for here:** nothing — the locality policy never reads `g` in this function. It's part of the standard callback signature so that a policy *may* inspect topology (e.g. to score by physical proximity), but this one only needs `subsystem`, `resources`, and `dfu`.
+
+### 4. `scoring_api_t &dfu` (non-const)
+- **What it is:** the root-level candidate pool — the accumulated result of the entire DFS. Internally a map `subsystem → resource_type → detail::evals_t`, each holding a vector of `eval_egroup_t {score, count, needs, exclusive, edges[]}` (edge_eval_api.hpp:32, scoring_api.hpp:101).
+- **What it contains at this point:** the final, graph-wide set of candidates for each requested type — every vertex was visited bottom-up first; per-vertex selections that called `choose_*` were already enforced at their level, unconstrained egroups were merged up by `resolve()` (dfu_impl.cpp:1070-1082), and the root's direct children appear as egroups keyed by their type.
+- **Used for (all mutations, hence non-const):**
+  - `qualified_count(subsystem, type)` — read how many units of a type are qualified/available
+  - `transform(subsystem, type, inserter(comp.ivset), fold::to_interval)` — project every egroup's score into the interval-set comparator state
+  - `choose_accum_best_k(subsystem, type, count, comp)` — sort the type's egroups with the comparator, assign `needs` to the chosen ones, record `best_k`/`best_i`, and set the `hier_constrain_now` flag
+  - `set_overall_score(score)` — record the whole match as `MATCH_MET`/`MATCH_UNMET`
+- **After the callback:** the traverser calls `has_root`, `has_remaining`, and `enforce_constrained` (dfu_impl.cpp:1059-1063) to actually commit the selected egroups' allocations to the graph.
+
+**Return value:** `0` on success; `-1` with `errno = EBUSY` when the request can't be met, which the traverser treats as a failed match for this search attempt.
+
+---
+
+## User
+
+I don't understand subsystem_t. What's an interened string, what's a dense_storage, why is subsystem_tag just an empty struct?
+
+---
+
+## Assistant (Plan · alias-code · 41.8s)
+
+_Thinking:_
+
+The user is asking about the internals of interned strings: what are interned strings, what is dense_storage, and why is subsystem_tag an empty struct. This is an explanatory question, so I need to look at the actual implementation of `intern::interned_string` and `intern::dense_storage` in the codebase (probably somewhere like resource/schema/intern.hpp). Let me go look for it.
+
+
+**Tool: grep**
+
+**Input:**
+```json
+{
+  "pattern": "class interned_string|struct interned_string",
+  "path": "/workspaces/flux-sched"
+}
+```
+
+**Output:**
+```
+Found 1 matches
+/workspaces/flux-sched/src/common/libintern/interner.hpp:
+  Line 204: class interned_string {
+
+```
+
+**Tool: grep**
+
+**Input:**
+```json
+{
+  "pattern": "dense_storage",
+  "path": "/workspaces/flux-sched",
+  "include": "*.hpp"
+}
+```
+
+**Output:**
+```
+Found 22 matches
+/workspaces/flux-sched/resource/schema/data_std.hpp:
+  Line 34: using subsystem_t = intern::interned_string<intern::dense_storage<subsystem_tag, uint8_t>>;
+
+  Line 39: using resource_type_t = intern::interned_string<intern::dense_storage<resource_type_tag, uint16_t>>;
+
+
+/workspaces/flux-sched/src/common/libintern/interner.hpp:
+  Line 40: void dense_storage_finalize (dense_inner_storage &storage);
+
+  Line 41: void dense_storage_unfinalize (dense_inner_storage &storage);
+
+  Line 42: void dense_storage_open (dense_inner_storage &storage);
+
+  Line 43: void dense_storage_close (dense_inner_storage &storage);
+
+  Line 57: struct dense_storage {
+
+  Line 63:     dense_storage (dense_storage const &) = delete;
+
+  Line 64:     dense_storage (dense_storage &&) = delete;
+
+  Line 65:     dense_storage &operator= (dense_storage const &) = delete;
+
+  Line 66:     dense_storage &operator= (dense_storage &&) = delete;
+
+  Line 75:             ::intern::detail::get_dense_inner_storage (dense_storage::unique_id ());
+
+  Line 93:         detail::dense_storage_finalize (get_storage ());
+
+  Line 100:         detail::dense_storage_unfinalize (get_storage ());
+
+  Line 113:         detail::dense_storage_open (get_storage ());
+
+  Line 118:         detail::dense_storage_close (get_storage ());
+
+  Line 124: detail::view_and_id dense_storage<Tag, Id>::get_both (std::string_view s)
+
+  Line 126:     return ::intern::detail::get_both (dense_storage::get_storage (), s, sizeof (Id));
+
+  Line 130: Id dense_storage<Tag, Id>::get_id (std::string_view s)
+
+  Line 132:     return ::intern::detail::get_both (dense_storage::get_storage (), s, sizeof (Id)).id;
+
+  Line 136: const std::string *dense_storage<Tag, Id>::get_by_id (id_storage_t string_id)
+
+  Line 138:     return ::intern::detail::get_by_id (dense_storage::get_storage (), string_id);
+
+```
+
+---
+
+## Assistant (Plan · alias-code · 4.3s)
+
+_Thinking:_
+
+Let's try reading the interner.hpp file to understand the mechanism of interned strings, dense storage, and tags.
+
+
+**Tool: read**
+
+**Input:**
+```json
+{
+  "filePath": "/workspaces/flux-sched/src/common/libintern/interner.hpp"
+}
+```
+
+**Output:**
+```
+<path>/workspaces/flux-sched/src/common/libintern/interner.hpp</path>
+<type>file</type>
+<content>
+1: /*****************************************************************************\
+2: * Copyright 2024 Lawrence Livermore National Security, LLC
+3:  * (c.f. AUTHORS, NOTICE.LLNS, LICENSE)
+4:  *
+5:  * This file is part of the Flux resource manager framework.
+6:  * For details, see https://github.com/flux-framework.
+7:  *
+8:  * SPDX-License-Identifier: LGPL-3.0
+9: \*****************************************************************************/
+10: 
+11: #ifndef INTERNER_LIBRARY_H
+12: #define INTERNER_LIBRARY_H
+13: 
+14: #include "interner.h"
+15: 
+16: #include <stdint.h>
+17: #include <cstdint>
+18: #include <iosfwd>
+19: #include <memory>
+20: #include <ostream>
+21: #include <math.h>
+22: 
+23: #include "scope_guard.hpp"
+24: #include <boost/container/small_vector.hpp>
+25: #include <boost/optional/optional.hpp>
+26: #include <stdexcept>
+27: 
+28: namespace intern {
+29: namespace detail {
+30: struct view_and_id {
+31:     const std::string *view;
+32:     size_t id;
+33: };
+34: 
+35: // forward declarations
+36: struct dense_inner_storage;
+37: view_and_id get_both (dense_inner_storage &ds, std::string_view s, char bytes_supported);
+38: const std::string *get_by_id (dense_inner_storage &ds, size_t string_id);
+39: 
+40: void dense_storage_finalize (dense_inner_storage &storage);
+41: void dense_storage_unfinalize (dense_inner_storage &storage);
+42: void dense_storage_open (dense_inner_storage &storage);
+43: void dense_storage_close (dense_inner_storage &storage);
+44: 
+45: dense_inner_storage &get_dense_inner_storage (size_t unique_id);
+46: 
+47: std::size_t hash_combine (std::size_t lhs, std::size_t rhs);
+48: };  // namespace detail
+49: 
+50: /// interner storage class providing dense, in-order IDs of configurable size
+51: ///
+52: /// allows addition of strings until finalized, then after that only when explicitly opened for
+53: /// additions, this is not for thread safety, it is to prevent denial of service from addition of
+54: /// invalid types through interfaces that take user input
+55: template<class Tag, class Id>
+56:     requires (sizeof (Id) <= sizeof (size_t))
+57: struct dense_storage {
+58:     // forward declare for reference and static declaration
+59:     using tag_t = Tag;
+60:     using id_instance_t = Id;
+61:     using id_storage_t = size_t;
+62: 
+63:     dense_storage (dense_storage const &) = delete;
+64:     dense_storage (dense_storage &&) = delete;
+65:     dense_storage &operator= (dense_storage const &) = delete;
+66:     dense_storage &operator= (dense_storage &&) = delete;
+67: 
+68:    private:
+69:     static detail::dense_inner_storage &get_storage ()
+70:     {
+71:         // C++ guarantees atomic initialization of a static like this, template expansion makes
+72:         // __PRETTY_FUNCTION__ unique for valid programs, using function here to avoid having to
+73:         // include heavy headers in this header
+74:         static detail::dense_inner_storage &s =
+75:             ::intern::detail::get_dense_inner_storage (dense_storage::unique_id ());
+76:         return s;
+77:     };
+78: 
+79:    public:
+80:     static detail::view_and_id get_both (std::string_view s);
+81:     static id_instance_t get_id (std::string_view s);
+82:     static const std::string *get_by_id (id_storage_t string_id);
+83: 
+84:     static size_t unique_id ()
+85:     {
+86:         static size_t uid = std::hash<std::string_view> () (__PRETTY_FUNCTION__);
+87:         return uid;
+88:     }
+89: 
+90:     /// stop new strings from being added unless the object is explicitly opened
+91:     static void finalize ()
+92:     {
+93:         detail::dense_storage_finalize (get_storage ());
+94:     }
+95: 
+96:     /// allow new strings to be added again, only call this when the owning module or agent is
+97:     /// ending
+98:     static void unfinalize ()
+99:     {
+100:         detail::dense_storage_unfinalize (get_storage ());
+101:     }
+102: 
+103:     /// open the interner for additions and auto-close on scope exit
+104:     [[nodiscard]] static auto open_for_scope ()
+105:     {
+106:         open ();
+107:         return sg::make_scope_guard ([] () { close (); });
+108:     }
+109: 
+110:     /// open the interner for additions
+111:     static auto open ()
+112:     {
+113:         detail::dense_storage_open (get_storage ());
+114:     }
+115:     /// close the interner for additions
+116:     static void close ()
+117:     {
+118:         detail::dense_storage_close (get_storage ());
+119:     }
+120: };
+121: 
+122: template<class Tag, class Id>
+123:     requires (sizeof (Id) <= sizeof (unsigned long int))
+124: detail::view_and_id dense_storage<Tag, Id>::get_both (std::string_view s)
+125: {
+126:     return ::intern::detail::get_both (dense_storage::get_storage (), s, sizeof (Id));
+127: }
+128: template<class Tag, class Id>
+129:     requires (sizeof (Id) <= sizeof (unsigned long int))
+130: Id dense_storage<Tag, Id>::get_id (std::string_view s)
+131: {
+132:     return ::intern::detail::get_both (dense_storage::get_storage (), s, sizeof (Id)).id;
+133: }
+134: template<class Tag, class Id>
+135:     requires (sizeof (Id) <= sizeof (unsigned long int))
+136: const std::string *dense_storage<Tag, Id>::get_by_id (id_storage_t string_id)
+137: {
+138:     return ::intern::detail::get_by_id (dense_storage::get_storage (), string_id);
+139: }
+140: 
+141: namespace detail {
+142: struct sparse_inner_storage;
+143: sparse_inner_storage *get_sparse_inner_storage (size_t);
+144: using rc_str_t = std::shared_ptr<const std::string>;
+145: typedef void (*rc_free_fn) (const std::string *s);
+146: rc_str_t get_rc (sparse_inner_storage *storage,
+147:                  std::string_view s,
+148:                  rc_free_fn fn,
+149:                  bool add_if_missing = true);
+150: void remove_rc (sparse_inner_storage *is, const std::string *s);
+151: }  // namespace detail
+152: /// interner storage class providing refcounted interned strings, for untrusted inputs and large
+153: /// sets
+154: template<class Tag>
+155: struct rc_storage {
+156:     // forward declare for reference and static declaration
+157:     using tag_t = Tag;
+158:     using id_instance_t = detail::rc_str_t;
+159:     using id_storage_t = detail::rc_str_t;
+160: 
+161:     rc_storage (rc_storage const &) = delete;
+162:     rc_storage (rc_storage &&) = delete;
+163:     rc_storage &operator= (rc_storage const &) = delete;
+164:     rc_storage &operator= (rc_storage &&) = delete;
+165: 
+166:     static id_instance_t get_id (std::string_view s)
+167:     {
+168:         return ::intern::detail::get_rc (rc_storage::get_storage (), s, deleter);
+169:     }
+170:     static const std::string *get_by_id (id_storage_t string_id)
+171:     {
+172:         return string_id.get ();
+173:     }
+174:     static size_t unique_id ()
+175:     {
+176:         return std::hash<std::string_view> () (__PRETTY_FUNCTION__);
+177:     }
+178:     static bool contains (std::string_view s)
+179:     {
+180:         return ::intern::detail::get_rc (rc_storage::get_storage (), s, deleter, false) != nullptr;
+181:     }
+182: 
+183:    private:
+184:     static void deleter (const std::string *s)
+185:     {
+186:         remove_rc (rc_storage::get_storage (), s);
+187:     }
+188:     static detail::sparse_inner_storage *get_storage ()
+189:     {
+190:         // template expansion makes __PRETTY_FUNCTION__ unique for valid programs, using function
+191:         // here to avoid having to include heavy headers in this header
+192:         // This is stored as a pointer because the pointer will not be destructed at the end
+193:         // of execution, so we can refer to it even if the shared_pointer in
+194:         // get_sparse_inner_storage has been released. This is only safe because we can only get
+195:         // here if a shared_pointer that holds onto a reference to this still exists somewhere.
+196:         static auto *ptr_to_storage =
+197:             ::intern::detail::get_sparse_inner_storage (rc_storage::unique_id ());
+198:         return ptr_to_storage;
+199:     }
+200: };
+201: 
+202: /// A convenience wrapper of an interned string
+203: template<class Storage>
+204: class interned_string {
+205:     using Id = typename Storage::id_instance_t;
+206:     Id _id;
+207: 
+208:     // Not at all safe, verified by a pre-condition check in get_by_id
+209:     explicit interned_string (Id id) : _id (id)
+210:     {
+211:     }
+212: 
+213:    public:
+214:     using storage_t = Storage;
+215:     using id_type = Id;
+216: 
+217:     explicit interned_string (const std::string_view sv) : _id (Storage::get_id (sv))
+218:     {
+219:     }
+220: 
+221:     interned_string () : interned_string ("")
+222:     {
+223:     }
+224: 
+225:     interned_string (const interned_string &o) = default;
+226: 
+227:     interned_string (interned_string &&) = default;
+228: 
+229:     interned_string &operator= (const interned_string &) = default;
+230: 
+231:     interned_string &operator= (interned_string &&) = default;
+232: 
+233:     /// interned strings are ordered by insertion not value
+234:     auto operator<=> (const interned_string &) const = default;
+235: 
+236:     /// identity comparison
+237:     bool operator== (const interned_string &) const = default;
+238: 
+239:     static interned_string make (std::string_view v)
+240:     {
+241:         return interned_string (v);
+242:     }
+243: 
+244:     static interned_string get_by_id (Id id)
+245:     {
+246:         // will throw if this does not exist
+247:         Storage::get_by_id (id);
+248:         return interned_string (id);
+249:     }
+250: 
+251:     struct istring_end {
+252:         Id _val;
+253:     };
+254: 
+255:     class istring_incrementable {
+256:         Id _cur;
+257: 
+258:        public:
+259:         explicit istring_incrementable (interned_string cur) : _cur{cur.id ()}
+260:         {
+261:         }
+262: 
+263:         explicit istring_incrementable (Id cur_id) : _cur{cur_id}
+264:         {
+265:         }
+266: 
+267:         istring_incrementable (const istring_incrementable &o) = default;
+268: 
+269:         istring_incrementable (istring_incrementable &&) = default;
+270: 
+271:         istring_incrementable &operator= (const istring_incrementable &) = default;
+272: 
+273:         istring_incrementable &operator= (istring_incrementable &&) = default;
+274: 
+275:         istring_incrementable &operator++ ()
+276:         {
+277:             ++_cur;
+278:             return *this;
+279:         }
+280:         bool operator== (istring_end o)
+281:         {
+282:             return o._val == _cur;
+283:         }
+284:         interned_string operator* ()
+285:         {
+286:             return interned_string{_cur};
+287:         }
+288:     };
+289: 
+290:     class istring_range {
+291:         Id _first;
+292:         Id _one_past_last;
+293: 
+294:        public:
+295:         istring_range (const istring_range &o) = default;
+296: 
+297:         istring_range (istring_range &&) = default;
+298: 
+299:         istring_range &operator= (const istring_range &) = default;
+300: 
+301:         istring_range &operator= (istring_range &&) = default;
+302: 
+303:         istring_range (Id first, Id one_past_last) : _first{first}, _one_past_last{one_past_last}
+304:         {
+305:         }
+306: 
+307:         istring_incrementable begin ()
+308:         {
+309:             if (_first >= _one_past_last)
+310:                 return istring_incrementable{_one_past_last};
+311:             return istring_incrementable{_first};
+312:         }
+313:         istring_end end ()
+314:         {
+315:             return {_one_past_last};
+316:         }
+317:     };
+318: 
+319:     static istring_range range_inclusive (interned_string first, interned_string last)
+320:     {
+321:         return {first._id, last._id + 1};
+322:     }
+323: 
+324:     static istring_range range_by_ids (Id first, Id one_past_last)
+325:     {
+326:         return {first, one_past_last};
+327:     }
+328: 
+329:     const std::string &get () const
+330:     {
+331:         return *Storage::get_by_id (_id);
+332:     }
+333: 
+334:     const char *c_str () const
+335:     {
+336:         return get ().c_str ();
+337:     }
+338: 
+339:     Id const &id () const
+340:     {
+341:         return _id;
+342:     }
+343: 
+344:     friend std::string operator+ (std::string const &lhs, interned_string const &rhs)
+345:     {
+346:         return lhs + rhs.get ();
+347:     }
+348:     friend std::string operator+ (interned_string const &lhs, std::string const &rhs)
+349:     {
+350:         return lhs.get () + rhs;
+351:     }
+352:     friend std::ostream &operator<< (std::ostream &os, const interned_string &obj)
+353:     {
+354:         return os << obj.get ();
+355:     }
+356:     friend std::istream &operator>> (std::istream &os, interned_string &obj)
+357:     {
+358:         std::string tmp;
+359:         os >> tmp;
+360:         obj = interned_string{tmp};
+361:         return os;
+362:     }
+363: };
+364: template<class InternT, class T, int likely_count = 2>
+365: struct interned_key_vec : boost::container::small_vector<T, likely_count> {
+366:     using base = boost::container::small_vector<T, likely_count>;
+367:     T &operator[] (InternT s)
+368:     {
+369:         if (s.id () >= base::size ()) [[unlikely]]
+370:             this->resize (s.id () + 1);
+371:         return base::operator[] (s.id ());
+372:     }
+373: 
+374:     T &at (InternT s)
+375:     {
+376:         if (s.id () >= base::size ()) [[unlikely]]
+377:             throw std::out_of_range ("no element available");
+378:         return base::operator[] (s.id ());
+379:     }
+380: 
+381:     const T &at (InternT s) const
+382:     {
+383:         if (s.id () >= base::size ()) [[unlikely]]
+384:             throw std::out_of_range ("no element available");
+385:         return base::operator[] (s.id ());
+386:     }
+387: 
+388:     boost::optional<T &> try_at (InternT s)
+389:     {
+390:         if (s.id () >= base::size ()) [[unlikely]]
+391:             return boost::none;
+392:         return base::operator[] (s.id ());
+393:     }
+394: 
+395:     boost::optional<const T &> try_at (InternT s) const
+396:     {
+397:         if (s.id () >= base::size ()) [[unlikely]]
+398:             return boost::none;
+399:         return base::operator[] (s.id ());
+400:     }
+401: 
+402:     typename InternT::istring_range key_range () const
+403:     {
+404:         return InternT::range_by_ids (0, base::size ());
+405:     }
+406: };
+407: }  // namespace intern
+408: 
+409: namespace std {
+410: namespace detail {
+411: template<typename Tval>
+412: struct FastPointerHash {
+413:     size_t operator() (const Tval *val) const
+414:     {
+415:         static const size_t shift = (size_t)log2 (1 + sizeof (Tval));
+416:         return (size_t)(val) >> shift;
+417:     }
+418: };
+419: };  // namespace detail
+420: template<class Tag>
+421: struct hash<intern::interned_string<intern::rc_storage<Tag>>> {
+422:     using Storage = intern::rc_storage<Tag>;
+423:     using T = intern::interned_string<Storage>;
+424:     size_t operator() (const T &s) const
+425:     {
+426:         return ::intern::detail::
+427:             hash_combine (Storage::unique_id (),
+428:                           detail::FastPointerHash<
+429:                               typename Storage::id_instance_t::element_type> () (s.id ().get ()));
+430:     }
+431: };
+432: template<class Storage>
+433: struct hash<intern::interned_string<Storage>> {
+434:     size_t operator() (const intern::interned_string<Storage> &s) const
+435:     {
+436:         return ::intern::detail::hash_combine (Storage::unique_id (),
+437:                                                std::hash<typename Storage::id_instance_t> () (
+438:                                                    s.id ()));
+439:     }
+440: };
+441: }  // namespace std
+442: #endif  // INTERNER_LIBRARY_H
+
+(End of file - total 442 lines)
+</content>
+```
+
+---
+
+## Assistant (Plan · alias-code · 317.9s)
+
+_Thinking:_
+
+Now I understand the interner mechanism. Let me also look at dense_inner_storage in interner.cpp to explain the dense ID storage, and check where subsystem_tag / containment_sub are used (e.g., how subsystem_t is constructed from a string, and where finalize is called). I'll also check the usage sites of `subsystem_id{0}` and `resource_type_id{1}` in
+
+_Thinking:_
+
+Now I understand the C++ side. Next, let me also look at the C implementation (interner.h / interner.c) to understand `dense_inner_storage` and how the ID is assigned, so I can fully explain `dense_storage`. I'll also check where the subsystems get finalized (e.g., the place in the resource module that calls `subsystem_t::storage_t::finalize()`), so I can explain the lifecycle. Let me check interner.h and the usage sites of finalize.
+
+
+**Tool: read**
+
+**Input:**
+```json
+{
+  "filePath": "/workspaces/flux-sched/src/common/libintern/interner.h"
+}
+```
+
+**Output:**
+```
+<path>/workspaces/flux-sched/src/common/libintern/interner.h</path>
+<type>file</type>
+<content>
+1: #ifndef INTERNER_C_LIBRARY_H
+2: #define INTERNER_C_LIBRARY_H
+3: 
+4: #include <stddef.h>
+5: #include <stdint.h>
+6: 
+7: #if defined(__cplusplus)
+8: extern "C" {
+9: #endif
+10: typedef struct {
+11:     size_t id;
+12: } interner_t;
+13: 
+14: typedef struct {
+15:     const char *str;
+16:     size_t len;
+17: } intern_string_view_t;
+18: 
+19: typedef struct {
+20:     // Details of this are considered private and prone to change, do not touch
+21:     interner_t group_id;
+22:     uint64_t id;
+23: } intern_string_t;
+24: 
+25: /// get an ID for a new intern group, strings within a group will be deduplicated, across groups
+26: /// they may not be
+27: interner_t interner_new ();
+28: 
+29: /// Get an interned string identifier from group id and a char * and length, the string need not be
+30: /// null terminated
+31: intern_string_t dense_interner_get_str (interner_t group_id, intern_string_view_t s);
+32: 
+33: /// get the hash of this interned string
+34: size_t intern_str_hash (intern_string_t s);
+35: 
+36: /// get a view of the string with both string and length
+37: intern_string_view_t intern_str_view (intern_string_t s);
+38: 
+39: /// get the null-terminated string (not recommended, use lengths)
+40: const char *intern_str_cstr (intern_string_t s);
+41: 
+42: /// comparator function that orders by ID
+43: int intern_str_cmp_by_id (const void *l, const void *r);
+44: 
+45: /// comparator function that orders by string value
+46: int intern_str_cmp_by_str (const void *l, const void *r);
+47: 
+48: #if defined(__cplusplus)
+49: }
+50: #endif
+51: #endif  // INTERNER_C_LIBRARY_H
+
+(End of file - total 51 lines)
+</content>
+```
+
+**Tool: grep**
+
+**Input:**
+```json
+{
+  "pattern": "storage_t::finalize|dense_storage_finalize|subsystem_t::storage|subsystem_tag",
+  "path": "/workspaces/flux-sched/resource"
+}
+```
+
+**Output:**
+```
+Found 10 matches
+/workspaces/flux-sched/resource/schema/data_std.hpp:
+  Line 33: struct subsystem_tag {};
+
+  Line 34: using subsystem_t = intern::interned_string<intern::dense_storage<subsystem_tag, uint8_t>>;
+
+
+/workspaces/flux-sched/resource/reapi/bindings/c++/reapi_cli_impl.hpp:
+  Line 1087:         auto subsystem_open = subsystem_t::storage_t::open_for_scope ();
+
+  Line 1101:     subsystem_t::storage_t::finalize ();
+
+  Line 1102:     resource_type_t::storage_t::finalize ();
+
+  Line 1307:     auto subsystem_open = subsystem_t::storage_t::open_for_scope ();
+
+
+/workspaces/flux-sched/resource/modules/resource_match.cpp:
+  Line 1766:     auto subsystem_open = subsystem_t::storage_t::open_for_scope ();
+
+
+/workspaces/flux-sched/resource/modules/resource.cpp:
+  Line 1674:     subsystem_t::storage_t::finalize ();
+
+  Line 1675:     resource_type_t::storage_t::finalize ();
+
+  Line 1729:     subsystem_t::storage_t::unfinalize ();
+
+```
+
+---
+
+## Assistant (Plan · alias-code · 10.9s)
+
+_Thinking:_
+
+Now I've got the full picture. Let me quickly check where subsystems are being created (e.g., `subsystem_t("containment")` in resource.cpp), and check the C implementation of dense interning to explain how IDs are assigned (dense, in-order, bounded by sizeof(Id)). To verify the "dense in-order IDs" and the ID size limit, let me take a quick look at interner.c.
+
+
+**Tool: bash**
+
+**Input:**
+```json
+{
+  "command": "ls /workspaces/flux-sched/src/common/libintern/"
+}
+```
+
+**Output:**
+```
+CMakeLists.txt
+interner.cpp
+interner.h
+interner.hpp
+scope_guard.hpp
+test
+
+```
+
+**Tool: grep**
+
+**Input:**
+```json
+{
+  "pattern": "subsystem_t\\s+\\w+|subsystem_t\\(|make_subsystem|containment_sub",
+  "path": "/workspaces/flux-sched/resource",
+  "include": "*.cpp"
+}
+```
+
+**Output:**
+```
+Found 100 matches (more matches available)
+/workspaces/flux-sched/resource/writers/match_writers.cpp:
+  Line 334:     if (g[e].subsystem != containment_sub) {
+
+
+/workspaces/flux-sched/resource/traversers/dfu_impl_update.cpp:
+  Line 75:                               subsystem_t s,
+
+  Line 105:                            subsystem_t s,
+
+  Line 118: int dfu_impl_t::upd_by_outedges (subsystem_t subsystem, jobmeta_t jobmeta, vtx_t u, edg_t e)
+
+  Line 156:                           subsystem_t s,
+
+  Line 211:                                  subsystem_t subsystem,
+
+  Line 233:                           subsystem_t s,
+
+  Line 254:                            subsystem_t s,
+
+  Line 291:                          subsystem_t subsystem,
+
+  Line 336:     subsystem_t dom = m_match->dom_subsystem ();
+
+  Line 440:                               subsystem_t subsystem,
+
+  Line 521:                            subsystem_t subsystem,
+
+  Line 609:     subsystem_t dom = m_match->dom_subsystem ();
+
+  Line 631:     subsystem_t dom = m_match->dom_subsystem ();
+
+  Line 699:     subsystem_t dom = m_match->dom_subsystem ();
+
+  Line 720:     subsystem_t dom = m_match->dom_subsystem ();
+
+  Line 823:     subsystem_t dom = m_match->dom_subsystem ();
+
+  Line 874:     subsystem_t dom = m_match->dom_subsystem ();
+
+  Line 967:     subsystem_t dom = m_match->dom_subsystem ();
+
+  Line 1119:     subsystem_t dom = m_match->dom_subsystem ();
+
+  Line 1224:         subsystem_t dom = m_match->dom_subsystem ();
+
+  Line 1266:     subsystem_t dom = m_match->dom_subsystem ();
+
+
+/workspaces/flux-sched/resource/traversers/dfu_flexible.cpp:
+  Line 134: int dfu_flexible_t::min_if (subsystem_t subsystem,
+
+  Line 153:     subsystem_t subsystem = m_match->dom_subsystem ();
+
+  Line 494:                                      subsystem_t s,
+
+
+/workspaces/flux-sched/resource/traversers/dfu.cpp:
+  Line 41:     subsystem_t dom = get_match_cb ()->dom_subsystem ();
+
+  Line 158:     subsystem_t dom = get_match_cb ()->dom_subsystem ();
+
+  Line 379:     subsystem_t dom = get_match_cb ()->dom_subsystem ();
+
+  Line 457:     subsystem_t dom = get_match_cb ()->dom_subsystem ();
+
+  Line 485:     subsystem_t dom = get_match_cb ()->dom_subsystem ();
+
+  Line 510:     subsystem_t dom = get_match_cb ()->dom_subsystem ();
+
+  Line 531:     subsystem_t dom = get_match_cb ()->dom_subsystem ();
+
+
+/workspaces/flux-sched/resource/traversers/dfu_impl.cpp:
+  Line 48: bool dfu_impl_t::in_subsystem (edg_t e, subsystem_t subsystem) const
+
+  Line 54: bool dfu_impl_t::stop_explore (edg_t e, subsystem_t subsystem) const
+
+  Line 80:                           subsystem_t s,
+
+  Line 105:                          subsystem_t s,
+
+  Line 167:                             subsystem_t s,
+
+  Line 236:                                  subsystem_t s,
+
+  Line 257:                        subsystem_t s,
+
+  Line 416: int dfu_impl_t::accum_if (subsystem_t subsystem,
+
+  Line 431: int dfu_impl_t::accum_if (subsystem_t subsystem,
+
+  Line 447: int dfu_impl_t::prime_exp (subsystem_t subsystem, vtx_t u, std::map<resource_type_t, int64_t> &dfv)
+
+  Line 462:                                     subsystem_t subsystem,
+
+  Line 499: void dfu_impl_t::tally_shares (subsystem_t subsystem,
+
+  Line 545:                                      subsystem_t subsystem,
+
+  Line 604:                          subsystem_t subsystem,
+
+  Line 627:                          subsystem_t aux,
+
+  Line 676:     subsystem_t dom = m_match->dom_subsystem ();
+
+  Line 692:     subsystem_t dom = m_match->dom_subsystem ();
+
+  Line 739:     subsystem_t dom = m_match->dom_subsystem ();
+
+  Line 802:     subsystem_t dom = m_match->dom_subsystem ();
+
+  Line 866:                               subsystem_t aux,
+
+  Line 883:     subsystem_t dom = m_match->dom_subsystem ();
+
+  Line 1056:     subsystem_t dom = m_match->dom_subsystem ();
+
+  Line 1084: std::optional<edg_t> find_parent_edge (vtx_t v, resource_graph_t &g, subsystem_t s)
+
+  Line 1093: int dfu_impl_t::enforce (subsystem_t subsystem, scoring_api_t &dfu, bool enforce_unconstrained)
+
+  Line 1098:         subsystem_t dom = m_match->dom_subsystem ();
+
+  Line 1227: int dfu_impl_t::prime_pruning_filter (subsystem_t s,
+
+  Line 1298:     subsystem_t subsystem = m_match->dom_subsystem ();
+
+  Line 1324:     subsystem_t dom = m_match->dom_subsystem ();
+
+  Line 1361:     subsystem_t dom = m_match->dom_subsystem ();
+
+
+/workspaces/flux-sched/resource/schema/test/schema_test02.cpp:
+  Line 38:     static subsystem_t containment_sub{"containment"};
+
+  Line 39:     static subsystem_t network_sub{"network"};
+
+  Line 40:     static subsystem_t storage_sub{"storage"};
+
+  Line 45:     infra1->colors[containment_sub] = 0;
+
+  Line 48:     infra1->subplans[containment_sub] =
+
+  Line 61:     infra2->colors[containment_sub] = 0;
+
+  Line 64:     infra2->subplans[containment_sub] =
+
+  Line 88:     infra5->colors[containment_sub] = 0;
+
+  Line 91:     infra5->subplans[containment_sub] =
+
+  Line 103:     infra6->colors[containment_sub] = 0;
+
+  Line 106:     infra6->subplans[containment_sub] =
+
+  Line 117:     infra7->colors[containment_sub] = 0;
+
+  Line 120:     infra7->subplans[containment_sub] =
+
+  Line 133:     infra8->colors[containment_sub] = 0;
+
+  Line 136:     infra8->subplans[containment_sub] =
+
+  Line 149:     infra9->colors[containment_sub] = 0;
+
+  Line 152:     infra9->subplans[containment_sub] =
+
+
+/workspaces/flux-sched/resource/reapi/test/reapi_cli_test_cxx.cpp:
+  Line 377: // The subsystem_t and resource_type_t interners are process-global statics that
+
+
+/workspaces/flux-sched/resource/reapi/test/reapi_cli_test_c.cpp:
+  Line 267: // resource_query_t's constructor finalizes the subsystem_t and resource_type_t
+
+
+/workspaces/flux-sched/resource/schema/data_std.cpp:
+  Line 16: subsystem_t containment_sub{"containment"};
+
+
+/workspaces/flux-sched/resource/readers/resource_reader_jgf.cpp:
+  Line 812:     static const subsystem_t containment_sub{"containment"};
+
+  Line 817:         if (!(opt_subtree_plan = g[vtx].idata.subplans.try_at (containment_sub))
+
+  Line 873:     path_len = g[vtx].paths.at (containment_sub).length ();
+
+
+/workspaces/flux-sched/resource/readers/resource_reader_jgf_shorthand.cpp:
+  Line 40:     static const subsystem_t containment_sub{"containment"};
+
+  Line 49:         if (g[*ei].subsystem != containment_sub)
+
+  Line 121:         if (g[*ei].subsystem != containment_sub)
+
+
+/workspaces/flux-sched/resource/readers/resource_reader_hwloc.cpp:
+  Line 47:     const subsystem_t subsys{"containment"};
+
+  Line 69:                                                subsystem_t subsys,
+
+  Line 368:         const subsystem_t subsys ("containment");
+
+
+/workspaces/flux-sched/resource/readers/resource_reader_rv1exec.cpp:
+  Line 73:                                              subsystem_t subsys,
+
+  Line 162:                                           subsystem_t subsys,
+
+  Line 194:                          containment_sub,
+
+  Line 213:                                               subsystem_t subsys,
+
+  Line 451:                                                 subsystem_t subsys,
+
+  Line 659:                              containment_sub,
+
+  Line 759:                          containment_sub,
+
+  Line 852:     if (m.roots.find (containment_sub) == m.roots.end ()) {
+
+  Line 857:     cluster_vtx = m.roots[containment_sub];
+
+  Line 859:     m.v_rt_edges[containment_sub].set_for_trav_update (g[cluster_vtx].size,
+
+
+(Results truncated. Consider using a more specific path or pattern.)
+```
+
+---
+
+## Assistant (Plan · alias-code · 6.9s)
+
+_Thinking:_
+
+Now I have everything I need. Let me also quickly check the C implementation, interner.cpp, to explain how dense IDs are assigned (in insertion order, with the upper limit of `sizeof(Id)` bytes). Let me take a quick look at the main part of interner.cpp.
+
+
+**Tool: grep**
+
+**Input:**
+```json
+{
+  "pattern": "bytes_supported|overflow|get_both|dense_inner_storage \\{",
+  "path": "/workspaces/flux-sched/src/common/libintern/interner.cpp"
+}
+```
+
+**Output:**
+```
+Found 13 matches
+/workspaces/flux-sched/src/common/libintern/interner.hpp:
+  Line 37: view_and_id get_both (dense_inner_storage &ds, std::string_view s, char bytes_supported);
+
+  Line 80:     static detail::view_and_id get_both (std::string_view s);
+
+  Line 124: detail::view_and_id dense_storage<Tag, Id>::get_both (std::string_view s)
+
+  Line 126:     return ::intern::detail::get_both (dense_storage::get_storage (), s, sizeof (Id));
+
+  Line 132:     return ::intern::detail::get_both (dense_storage::get_storage (), s, sizeof (Id)).id;
+
+
+/workspaces/flux-sched/src/common/libintern/interner.cpp:
+  Line 45: struct dense_inner_storage {
+
+  Line 157: static bool check_valid (size_t val, char bytes_supported)
+
+  Line 159:     if (bytes_supported == 1) {
+
+  Line 162:     if (bytes_supported == 2) {
+
+  Line 165:     if (bytes_supported == 4) {
+
+  Line 171: view_and_id get_both (dense_inner_storage &storage, const std::string_view s, char bytes_supported)
+
+  Line 178:         if (!check_valid (storage.strings_by_id.size () + 1, bytes_supported))
+
+  Line 224:             intern::detail::get_both (intern::detail::get_dense_inner_storage (group_id.id),
+
+```
+
+---
+
+## Assistant (Plan · alias-code · 55.0s)
+
+_Thinking:_
+
+I have all the information I need to explain this thoroughly. Let me structure the response around the three questions:
+
+1. **What is an interned string?**
+   - General concept: string interning — a global registry that stores each unique string value exactly once and hands out a small, stable, dense integer ID (the "intern" handle). Any two interned handles with the same ID point to the same string, so comparing two handles is a cheap integer comparison (identity comparison) rather than a character-by-character strcmp. Also, copying an interned string is just copying a small integer.
+   - In this codebase: `intern::interned_string<Storage>` (src/common/libintern/interner.hpp:204) is a wrapper around a single `Id` value. Construction from a `std::string_view` (`interned_string ("containment")`) looks up the string in a process-global table, and interns (adds) it if it doesn't already exist, returning a small integer ID. `get()`/`c_str()` look up the actual string from the ID. `operator==` is just an ID comparison. Hashing is also ID-based (interner.hpp:432-440).
+   - Why it matters here: the resource graph is huge, and subsystem names and resource type names ("containment", "node", "core") are compared *very* frequently (every edge traversal, every map lookup). Interning turns those comparisons into a 1-byte or 2-byte integer comparison, and — importantly — IDs can be used directly as array indices: `interned_key_vec` (interner.hpp:364) is a small_vector indexed by the interned ID, and that's exactly what `scoring_api_t` uses (`m_ssys_map[s][r]`, scoring_api.hpp:101), and what vertex infrastructure uses too (e.g., `colors[dom]`, `subplans[containment_sub]` in the tests).
+
+2. **What is dense_storage?**
+   - It's one of two storage backends for the interner (interner.hpp:55): `dense_storage<Tag, Id>` provides **dense, in-order, bounded IDs** — the first distinct string added gets ID 0 (or the first available ID), the next gets 1, and so on. `Id` (uint8_t for subsystems, uint16_t for resource types) is the width of the ID type, so subsystems are limited to 256 and resource types to 65536 (see `check_valid` in interner.cpp:157 — it rejects additions that would overflow the width; and the `requires sizeof(Id) <= sizeof(size_t)` constraint).
+   - The IDs are dense (0..N-1, no gaps), so they can be used as direct indices into flat arrays (interned_key_vec) — no hash lookup needed.
+   - The underlying table is a process-global singleton per template instantiation (static local in `get_storage()`, interned via the unique_id() hash of `__PRETTY_FUNCTION__`, intern.hpp:69-77).
+   - There's a lifecycle: you can add strings until `finalize()` is called; after that, additions are rejected unless you explicitly `open()` (and `unfinalize()` at shutdown). The purpose is stated in the comment (interner.hpp:52-54): not for thread safety, but "to prevent denial of service from the addition of invalid types through interfaces that accept user input." In the resource module: subsystems are interned from the resource spec at startup, then `subsystem_t::storage_t::finalize()` (resource.cpp:1674, reapi_cli_impl.hpp:1101) freezes the set; occasionally (resource_match.cpp:1766) `open_for_scope()` temporarily allows new ones.
+   - Contrast with the other backend `rc_storage<Tag>` (interner.hpp:155): refcounted, sparse, for untrusted input / large sets — its "ID" is actually a shared_ptr to a canonicalized string. So dense = small closed set with integer handles; rc = large/open set with pointer handles.
+
+3. **Why is subsystem_tag an empty struct?**
+   - This is C++ "tag dispatch" via template parameters — an empty type used purely as a compile-time label (a "tag type" / "tag struct"). The template `dense_storage<Tag, Id>` instantiates a *different* storage class for each distinct `Tag`: `dense_storage<subsystem_tag, uint8_t>` and `dense_storage<resource_type_tag, uint16_t>` are two unrelated types, and therefore two separate process-global intern tables. If you interned "node" as a subsystem and "node" as a resource type, the two tables would stay separate — even with the same string, you wouldn't collide or share IDs across the two namespaces.
+   - `Tag` is only used as a template key (plus `using tag_t = Tag` for reflection); it never has a value, state, or function, so it must be empty. (You could put data in it, but nothing here uses it.)
+   - Related: `subsystem_t` and `resource_type_t` are different types at compile time (different instantiations), so you can't accidentally assign a resource type where a subsystem is expected.
+   - Also, the tag participates in `unique_id()` (hash of `__PRETTY_FUNCTION__`) — that's how each instantiation gets a distinct global table, and it's how the `std::hash` specialization (interner.hpp:432-440) mixes in the storage's unique ID so that hashes of "node" as a subsystem and "node" as a type differ.
+
+And tying it back to the original question: so in `dom_finish_graph(subsystem, resources, g, dfu)`, that `subsystem` argument is a 1-byte integer handle ("containment" → e.g., ID 0), and `dfu.qualified_count(subsystem, ...)` uses that integer to index a flat vector (interned_key_vec), which is why it's O(1) with no string comparison.
+
+One more useful detail: ordering is "by insertion order, not by value" (comment at interned_string::operator<=>, intern.hpp:233) — worth mentioning since it affects the determinism of iteration order.
+
+Where IDs start from: let me double-check whether the first ID is 0 or 1. interner.cpp:178: `check_valid (storage.strings_by_id.size () + 1, bytes_supported)` — hmm, does it check size+1? Let me read that function to be precise.
+
+
+**Tool: read**
+
+**Input:**
+```json
+{
+  "filePath": "/workspaces/flux-sched/src/common/libintern/interner.cpp",
+  "offset": 40,
+  "limit": 150
+}
+```
+
+**Output:**
+```
+<path>/workspaces/flux-sched/src/common/libintern/interner.cpp</path>
+<type>file</type>
+<content>
+40:     {
+41:         return hash_type{}(str);
+42:     }
+43: };
+44: 
+45: struct dense_inner_storage {
+46:     std::vector<const std::string *> strings_by_id;
+47:     // Tombstone is UINTPTR_MAX
+48:     std::unordered_map<std::string, size_t, string_hash, std::equal_to<>> ids_by_string;
+49:     // reader/writer lock to protect entries
+50:     std::unique_ptr<std::shared_mutex> mtx = std::make_unique<std::shared_mutex> ();
+51:     // if the object is finalized and not opened, reject new strings
+52:     bool finalized = false;
+53:     // whether this object is allowed to accept new strings after finalization from each thread
+54:     std::unordered_map<std::thread::id, bool> open_map;
+55: };
+56: 
+57: dense_inner_storage &get_dense_inner_storage (size_t unique_id)
+58: {
+59:     static std::unordered_map<size_t, dense_inner_storage> groups;
+60:     auto guard = std::unique_lock (group_mtx);
+61:     return groups[unique_id];
+62: }
+63: 
+64: void dense_storage_finalize (dense_inner_storage &storage)
+65: {
+66:     auto ul = std::unique_lock (*storage.mtx);
+67:     storage.finalized = true;
+68: }
+69: void dense_storage_unfinalize (dense_inner_storage &storage)
+70: {
+71:     auto ul = std::unique_lock (*storage.mtx);
+72:     storage.finalized = false;
+73: }
+74: void dense_storage_open (dense_inner_storage &storage)
+75: {
+76:     auto ul = std::unique_lock (*storage.mtx);
+77:     storage.open_map[std::this_thread::get_id ()] = true;
+78: }
+79: void dense_storage_close (dense_inner_storage &storage)
+80: {
+81:     auto ul = std::unique_lock (*storage.mtx);
+82:     storage.open_map[std::this_thread::get_id ()] = false;
+83: }
+84: 
+85: struct sparse_inner_storage;
+86: struct sparse_string_node {
+87:     // This must be carefully managed, it holds onto the sparse_inner_storage that is keeping the
+88:     // string alive until all strings in that table have been reclaimed. It looks cyclic, but
+89:     // because the strings are stored by weak_ptr, and remove these entries when they expire, it is
+90:     // not.
+91:     std::shared_ptr<sparse_inner_storage> storage;
+92:     typename rc_str_t::weak_type str;
+93: };
+94: struct sparse_inner_storage : std::enable_shared_from_this<sparse_inner_storage> {
+95:     // Tombstone is UINTPTR_MAX
+96:     std::unordered_map<std::string, sparse_string_node, string_hash, std::equal_to<>> strings;
+97:     // reader/writer lock to protect entries
+98:     std::unique_ptr<std::shared_mutex> mtx = std::make_unique<std::shared_mutex> ();
+99: };
+100: 
+101: sparse_inner_storage *get_sparse_inner_storage (size_t unique_id)
+102: {
+103:     static std::unordered_map<size_t, std::shared_ptr<sparse_inner_storage>> groups;
+104:     auto guard = std::unique_lock (group_mtx);
+105:     auto &ret = groups[unique_id];
+106:     if (!ret)
+107:         ret = std::make_shared<sparse_inner_storage> ();
+108:     return ret.get ();
+109: }
+110: 
+111: void remove_rc (sparse_inner_storage *storage, const std::string *s)
+112: {
+113:     // The lifetime of storage must exceed the life of the lock region below or we may access
+114:     // invalid memory on the unlock phase because of destructing the storage after the last string
+115:     auto ref = storage->shared_from_this ();
+116:     {
+117:         // writer lock scope
+118:         auto ul = std::unique_lock (*storage->mtx);
+119:         storage->strings.erase (*s);
+120:     }
+121: }
+122: 
+123: rc_str_t get_rc (sparse_inner_storage *storage,
+124:                  std::string_view s,
+125:                  rc_free_fn fn,
+126:                  bool add_if_missing)
+127: {
+128:     {  // shared lock scope
+129:         auto sl = std::shared_lock (*storage->mtx);
+130:         auto it = storage->strings.find (s);
+131:         if (it != storage->strings.end ()) {
+132:             if (auto shared = it->second.str.lock ())
+133:                 return shared;
+134:             // we found it, but the weak pointer is no longer valid somehow, this shouldn't be
+135:             // possible but handle it anyway
+136:         }
+137:     }  // release shared lock
+138: 
+139:     if (!add_if_missing)
+140:         return nullptr;
+141: 
+142:     // writer lock scope
+143:     auto ul = std::unique_lock (*storage->mtx);
+144:     // create the shared pointer to the sparse_string_node, and ensure
+145:     auto ssn = sparse_string_node{storage->shared_from_this (), rc_str_t (nullptr)};
+146:     const auto &[it, added] = storage->strings.emplace (s, ssn);
+147:     // create shared pointer referring to the key, which will be stored as a weak pointer in the
+148:     // value, using the passed deleter which will remove it from the map when no user references
+149:     // remain
+150:     auto shared = rc_str_t (&it->first, fn);
+151: 
+152:     it->second.str = shared;
+153: 
+154:     return shared;
+155: }
+156: 
+157: static bool check_valid (size_t val, char bytes_supported)
+158: {
+159:     if (bytes_supported == 1) {
+160:         return val < UINT8_MAX;
+161:     }
+162:     if (bytes_supported == 2) {
+163:         return val < UINT16_MAX;
+164:     }
+165:     if (bytes_supported == 4) {
+166:         return val < UINT32_MAX;
+167:     }
+168:     return val < UINT64_MAX;
+169: }
+170: 
+171: view_and_id get_both (dense_inner_storage &storage, const std::string_view s, char bytes_supported)
+172: {
+173:     {  // shared lock scope
+174:         auto sl = std::shared_lock (*storage.mtx);
+175:         auto it = storage.ids_by_string.find (s);
+176:         if (it != storage.ids_by_string.end ())
+177:             return {&it->first, it->second};
+178:         if (!check_valid (storage.strings_by_id.size () + 1, bytes_supported))
+179:             throw std::system_error (ENOMEM,
+180:                                      std::generic_category (),
+181:                                      "Too many strings for configured size");
+182:         // if storage is finalized and the thread isn't in the open map, we must not add another
+183:         // here, check while under the shared lock
+184:         if (storage.finalized && !storage.open_map[std::this_thread::get_id ()]) {
+185:             using namespace std::string_literals;
+186:             std::string err =
+187:                 "This interner is finalized and must be open to add strings, found new string: '"s
+188:                 + std::string (s) + "'"s;
+189:             throw std::system_error (ENOMEM, std::generic_category (), err);
+
+(Showing lines 40-189 of 296. Use offset=190 to continue.)
+</content>
+```
+
+---
+
+## Assistant (Plan · alias-code · 299.2s)
+
+_Thinking:_
+
+Now I have a grasp of the whole picture. Let me write an explanation.
+
+Structure:
+1. What an interned string is (concept + this codebase)
+2. What dense_storage is (backend, dense IDs, width limits, global singleton, finalize lifecycle)
+3. Why subsystem_tag is empty (tag dispatch for independent type-erased namespaces)
+4. How this all ties together with the arguments of dom_finish_graph (1-byte handle, O(1) indexing)
+
+Keep it concise but complete. This is a conceptual question, so medium length is fine.
+
+
+
+
+All three come from the interner library in `src/common/libintern/`. Let me take them in order.
+
+## What an interned string is
+
+**String interning** is a general technique: a process-global registry stores each distinct string value exactly once and hands out a small, stable integer ID as the handle. Two handles are "the same string" iff their integers are equal.
+
+In this codebase, `interned_string<Storage>` (interner.hpp:204) is just a wrapper around one such `Id`:
+
+```cpp
+class interned_string {
+    Id _id;                       // the whole object is this integer
+    explicit interned_string (std::string_view sv) : _id (Storage::get_id (sv)) {}
+    const std::string &get () const { return *Storage::get_by_id (_id); }
+    auto operator<=> (const interned_string &) const = default;  // compares the Id
+};
+```
+
+So `subsystem_t containment_sub{"containment"};` (data_std.cpp:16) does a lookup-or-insert in a global table and returns e.g. ID 0; the actual string `"containment"` lives in the table, reachable via `.get()`/`.c_str()`. Paying off:
+
+- **Copying** a `subsystem_t` copies a 1-byte integer, not a string.
+- **Comparing** is `==` on the integer — no `strcmp`. This matters enormously in the traverser, where `g[e].subsystem == subsystem` runs on every edge visited (dfu_impl.cpp:48-56).
+- **IDs index flat arrays directly.** `interned_key_vec` (interner.hpp:364) is a `small_vector` you index with an interned handle: `vec[s]` resizes to `s.id()` and hands you the slot. That's how `scoring_api_t` does `m_ssys_map[subsystem][type]` (scoring_api.hpp:101) with zero hashing, and how vertex state like `colors[dom]` works.
+- Note the ordering caveat in the code: *"interned strings are ordered by insertion not value"* (interner.hpp:233) — ID 0 is whatever was interned first in the process.
+
+## What `dense_storage` is
+
+`interned_string` is a template over a **storage backend**; there are two (interner.hpp):
+
+| | `dense_storage<Tag, Id>` (line 55) | `rc_storage<Tag>` (line 155) |
+|---|---|---|
+| IDs | dense, in-order integers (0, 1, 2, …), width `Id` | sparse — actually a `shared_ptr` to the canonical string |
+| For | small, closed sets (subsystems, resource types) | untrusted input / large sets |
+
+`dense_storage`'s backing table (interner.cpp:45) is a `vector<const std::string*> strings_by_id` plus a reverse `unordered_map<string, id>`, all behind a shared mutex, as a **process-global singleton per template instantiation** (static local in `get_storage()`, keyed off a hash of `__PRETTY_FUNCTION__`, interner.hpp:69-88).
+
+"Dense" = no gaps: first distinct string gets the next ID (interner.cpp:178), so IDs are always `0..N-1` and can serve as direct array indices — that's the whole point vs. the sparse backend.
+
+The second template parameter is the **ID width**, which caps the set size:
+- `subsystem_t` uses `uint8_t` → at most 256 subsystems
+- `resource_type_t` uses `uint16_t` → at most 65536 types
+
+`check_valid` (interner.cpp:157) throws `ENOMEM` if you exceed it ("Too many strings for configured size"). Subsystems fit in a byte because a system realistically has one or two (`"containment"`, maybe `"network"`).
+
+There's also a **lifecycle** to be aware of (interner.hpp:52-54, 90-119): strings can be added until `finalize()` is called; afterwards additions throw unless a thread explicitly `open()`ed the interner (`open_for_scope()` for a scoped exception). The stated purpose is not thread safety but preventing *"denial of service from addition of invalid types through interfaces that take user input."* In the resource module, subsystems/types are interned while loading the resource spec, then frozen: `subsystem_t::storage_t::finalize()` (resource.cpp:1674); `resource_match.cpp:1766` temporarily re-opens it when parsing user-supplied match options.
+
+## Why `subsystem_tag` is an empty struct
+
+It's a **tag type** (tag dispatch via template parameter): an empty struct used purely as a compile-time label. `Tag` never carries state — it only distinguishes template instantiations:
+
+- `dense_storage<subsystem_tag, uint8_t>` and `dense_storage<resource_type_tag, uint16_t>` are two **unrelated types**, so each gets its own process-global intern table (via the distinct `unique_id()`, interner.hpp:84-88).
+- Consequence: `"node"` interned as a subsystem and `"node"` interned as a resource type live in separate namespaces with separate ID spaces — they can't collide.
+- It also makes `subsystem_t` and `resource_type_t` distinct C++ types, so you can't accidentally pass a resource type where a subsystem is expected.
+- The tag even leaks into hashing: `std::hash<interned_string<Storage>>` mixes in `Storage::unique_id()` (interner.hpp:432-440), so equal string values hash differently across the two namespaces.
+
+(There's a `using tag_t = Tag` alias in `dense_storage` for introspection, but nothing uses the tag's contents — hence `{}`.)
+
+## Tying it back to `dom_finish_graph`
+
+The `subsystem_t subsystem` argument is therefore not a string at all in practice — it's a 1-byte integer handle (e.g. `"containment"` → 0) that:
+1. compares in O(1) against edge/vertex `subsystem` fields during traversal,
+2. indexes the flat `interned_key_vec` inside `scoring_api_t` to reach that subsystem's candidate pools,
+3. was interned once at graph-load time and guaranteed stable by `finalize()`.
+
+The same pattern repeats throughout the codebase — grep `interned_string` and you'll see it used for resource types, relation names, and other hot-path string keys where the author wanted integer speed and guaranteed deduplication.
+
+
+
+
+
+---
+
+## User
+
+Please explain what the scoring_api does
+
+---
+
+## Assistant (Plan · alias-code · 15.1s)
+
+_Thinking:_
+
+The user is asking for an explanation of what `scoring_api_t` does. This is a read-only explanation request. I've already read scoring_api.hpp. To be thorough, I should look at scoring_api.cpp to understand the implementation of the non-template methods (qualified_count, total_count, merge, is_contained, resrc_types, etc.) as well as the implementation of `detail::evals_t` in edge_eval_api.cpp (add, qualified_count, qualified_granules, total_count, merge, iterators). Let me read these.
+
+
+**Tool: read**
+
+**Input:**
+```json
+{
+  "filePath": "/workspaces/flux-sched/resource/evaluators/scoring_api.cpp"
+}
+```
+
+**Output:**
+```
+<path>/workspaces/flux-sched/resource/evaluators/scoring_api.cpp</path>
+<type>file</type>
+<content>
+1: /*****************************************************************************\
+2:  * Copyright 2014 Lawrence Livermore National Security, LLC
+3:  * (c.f. AUTHORS, NOTICE.LLNS, LICENSE)
+4:  *
+5:  * This file is part of the Flux resource manager framework.
+6:  * For details, see https://github.com/flux-framework.
+7:  *
+8:  * SPDX-License-Identifier: LGPL-3.0
+9: \*****************************************************************************/
+10: 
+11: extern "C" {
+12: #if HAVE_CONFIG_H
+13: #include "config.h"
+14: #endif
+15: }
+16: 
+17: #include "resource/evaluators/scoring_api.hpp"
+18: 
+19: namespace Flux {
+20: namespace resource_model {
+21: 
+22: ////////////////////////////////////////////////////////////////////////////////
+23: // Scoring API Private Method Definitions
+24: ////////////////////////////////////////////////////////////////////////////////
+25: 
+26: ////////////////////////////////////////////////////////////////////////////////
+27: // Scoring API Public Method Definitions
+28: ////////////////////////////////////////////////////////////////////////////////
+29: 
+30: scoring_api_t::scoring_api_t () = default;
+31: scoring_api_t::scoring_api_t (const scoring_api_t &o) = default;
+32: scoring_api_t::scoring_api_t (scoring_api_t &&o) = default;
+33: scoring_api_t &scoring_api_t::operator= (const scoring_api_t &o) = default;
+34: scoring_api_t &scoring_api_t::operator= (scoring_api_t &&o) = default;
+35: scoring_api_t::~scoring_api_t () = default;
+36: 
+37: int64_t scoring_api_t::cutline (subsystem_t s, resource_type_t r)
+38: {
+39:     return m_ssys_map[s][r].cutline ();
+40: }
+41: 
+42: int64_t scoring_api_t::set_cutline (subsystem_t s, resource_type_t r, int64_t c)
+43: {
+44:     return m_ssys_map[s][r].set_cutline (c);
+45: }
+46: 
+47: void scoring_api_t::eval_egroups_iter_reset (subsystem_t s, resource_type_t r)
+48: {
+49:     m_ssys_map[s][r].eval_egroups_iter_reset ();
+50: }
+51: 
+52: std::vector<eval_egroup_t>::iterator scoring_api_t::eval_egroups_iter_next (subsystem_t s,
+53:                                                                             resource_type_t r)
+54: {
+55:     return m_ssys_map[s][r].eval_egroups_iter_next ();
+56: }
+57: 
+58: std::vector<eval_egroup_t>::iterator scoring_api_t::eval_egroups_end (subsystem_t s,
+59:                                                                       resource_type_t r)
+60: {
+61:     return m_ssys_map[s][r].eval_egroups_end ();
+62: }
+63: 
+64: int scoring_api_t::add (subsystem_t s, resource_type_t r, const eval_egroup_t &eg)
+65: {
+66:     return m_ssys_map[s][r].add (eg);
+67: }
+68: 
+69: //! Can throw an out_of_range exception
+70: const eval_egroup_t &scoring_api_t::at (subsystem_t s, resource_type_t r, unsigned int i)
+71: {
+72:     return m_ssys_map[s][r].at (i);
+73: }
+74: 
+75: unsigned int scoring_api_t::qualified_count (subsystem_t s, resource_type_t r)
+76: {
+77:     return m_ssys_map[s][r].qualified_count ();
+78: }
+79: 
+80: unsigned int scoring_api_t::qualified_granules (subsystem_t s, resource_type_t r)
+81: {
+82:     return m_ssys_map[s][r].qualified_granules ();
+83: }
+84: 
+85: unsigned int scoring_api_t::total_count (subsystem_t s, resource_type_t r)
+86: {
+87:     return m_ssys_map[s][r].total_count ();
+88: }
+89: 
+90: unsigned int scoring_api_t::best_k (subsystem_t s, resource_type_t r)
+91: {
+92:     return m_ssys_map[s][r].best_k ();
+93: }
+94: 
+95: unsigned int scoring_api_t::best_i (subsystem_t s, resource_type_t r)
+96: {
+97:     return m_ssys_map[s][r].best_i ();
+98: }
+99: 
+100: bool scoring_api_t::hier_constrain_now ()
+101: {
+102:     return m_hier_constrain_now;
+103: }
+104: 
+105: void scoring_api_t::merge (const scoring_api_t &o)
+106: {
+107:     for (const auto &s : o.m_ssys_map.key_range ()) {
+108:         auto &tmap = o.m_ssys_map.at (s);
+109:         for (auto &[r, ev] : tmap) {
+110:             m_ssys_map[s][r].merge (ev);
+111:         }
+112:     }
+113: }
+114: 
+115: void scoring_api_t::resrc_types (subsystem_t s, std::vector<resource_type_t> &v)
+116: {
+117:     for (auto &kv : m_ssys_map[s])
+118:         v.push_back (kv.first);
+119: }
+120: 
+121: // overall_score and avail are temporary space such that
+122: // a child vertex visitor can pass the info to the parent vertex
+123: int64_t scoring_api_t::overall_score ()
+124: {
+125:     return m_overall_score;
+126: }
+127: 
+128: void scoring_api_t::set_overall_score (int64_t overall)
+129: {
+130:     m_overall_score = overall;
+131: }
+132: 
+133: unsigned int scoring_api_t::avail ()
+134: {
+135:     return m_avail;
+136: }
+137: 
+138: void scoring_api_t::set_avail (unsigned int avail)
+139: {
+140:     m_avail = avail;
+141: }
+142: 
+143: bool scoring_api_t::is_contained (subsystem_t s, resource_type_t const &r)
+144: {
+145:     return m_ssys_map[s].contains (r);
+146: }
+147: 
+148: }  // namespace resource_model
+149: }  // namespace Flux
+150: 
+151: /*
+152:  * vi:tabstop=4 shiftwidth=4 expandtab
+153:  */
+
+(End of file - total 153 lines)
+</content>
+```
+
+---
+
+## Assistant (Plan · alias-code · 3.7s)
+
+_Thinking:_
+
+Next, in order to understand the semantics of add, qualified_count, qualified_granules, total_count, merge, and cutline, let's check the implementation of detail::evals_t in edge_eval_api.cpp.
+
+
+**Tool: read**
+
+**Input:**
+```json
+{
+  "filePath": "/workspaces/flux-sched/resource/evaluators/edge_eval_api.cpp"
+}
+```
+
+**Output:**
+```
+<path>/workspaces/flux-sched/resource/evaluators/edge_eval_api.cpp</path>
+<type>file</type>
+<content>
+1: /*****************************************************************************\
+2:  * Copyright 2014 Lawrence Livermore National Security, LLC
+3:  * (c.f. AUTHORS, NOTICE.LLNS, LICENSE)
+4:  *
+5:  * This file is part of the Flux resource manager framework.
+6:  * For details, see https://github.com/flux-framework.
+7:  *
+8:  * SPDX-License-Identifier: LGPL-3.0
+9: \*****************************************************************************/
+10: 
+11: extern "C" {
+12: #if HAVE_CONFIG_H
+13: #include "config.h"
+14: #endif
+15: }
+16: 
+17: #include "resource/evaluators/edge_eval_api.hpp"
+18: 
+19: namespace Flux {
+20: namespace resource_model {
+21: 
+22: ////////////////////////////////////////////////////////////////////////////////
+23: // Edge Evaluator Public Method Definitions
+24: ////////////////////////////////////////////////////////////////////////////////
+25: 
+26: eval_edg_t::eval_edg_t (unsigned int c, unsigned int n, unsigned int x, edg_t e)
+27:     : count (c), needs (n), exclusive (x), edge (e)
+28: {
+29: }
+30: 
+31: eval_edg_t::eval_edg_t (unsigned int c, unsigned int n, unsigned int x)
+32:     : count (c), needs (n), exclusive (x)
+33: {
+34: }
+35: 
+36: eval_egroup_t::eval_egroup_t ()
+37: {
+38: }
+39: 
+40: eval_egroup_t::eval_egroup_t (int64_t s, unsigned int c, unsigned int n, unsigned int x, bool r)
+41:     : score (s), count (c), needs (n), exclusive (x), root (r)
+42: {
+43: }
+44: 
+45: eval_egroup_t::eval_egroup_t (const eval_egroup_t &o)
+46: {
+47:     score = o.score;
+48:     count = o.count;
+49:     needs = o.needs;
+50:     exclusive = o.exclusive;
+51:     root = o.root;
+52:     edges = o.edges;
+53: }
+54: 
+55: eval_egroup_t &eval_egroup_t::operator= (const eval_egroup_t &o)
+56: {
+57:     score = o.score;
+58:     count = o.count;
+59:     needs = o.needs;
+60:     exclusive = o.exclusive;
+61:     root = o.root;
+62:     edges = o.edges;
+63:     return *this;
+64: }
+65: 
+66: namespace detail {
+67: 
+68: evals_t::evals_t ()
+69: {
+70: }
+71: 
+72: evals_t::evals_t (int64_t cutline, resource_type_t res_type)
+73:     : m_resrc_type (res_type), m_cutline (cutline)
+74: {
+75: }
+76: 
+77: evals_t::evals_t (resource_type_t res_type) : m_resrc_type (res_type)
+78: {
+79: }
+80: 
+81: evals_t::evals_t (const evals_t &o)
+82: {
+83:     m_eval_egroups = o.m_eval_egroups;
+84:     m_resrc_type = o.m_resrc_type;
+85:     m_cutline = o.m_cutline;
+86:     m_qual_count = o.m_qual_count;
+87:     m_total_count = o.m_total_count;
+88:     m_best_k = o.m_best_k;
+89:     m_best_i = o.m_best_i;
+90: }
+91: 
+92: evals_t::~evals_t ()
+93: {
+94:     m_eval_egroups.clear ();
+95: }
+96: 
+97: evals_t &evals_t::operator= (const evals_t &o)
+98: {
+99:     m_eval_egroups = o.m_eval_egroups;
+100:     m_resrc_type = o.m_resrc_type;
+101:     m_cutline = o.m_cutline;
+102:     m_qual_count = o.m_qual_count;
+103:     m_total_count = o.m_total_count;
+104:     m_best_k = o.m_best_k;
+105:     m_best_i = o.m_best_i;
+106:     return *this;
+107: }
+108: 
+109: unsigned int evals_t::add (const eval_egroup_t &eg)
+110: {
+111:     m_total_count += eg.count;
+112:     if (eg.score > m_cutline)
+113:         m_qual_count += eg.count;
+114:     m_eval_egroups.push_back (eg);
+115:     return m_qual_count;
+116: }
+117: 
+118: const eval_egroup_t &evals_t::at (unsigned int i) const
+119: {
+120:     return m_eval_egroups.at (i);
+121: }
+122: 
+123: unsigned int evals_t::qualified_count () const
+124: {
+125:     return m_qual_count;
+126: }
+127: 
+128: unsigned int evals_t::qualified_granules () const
+129: {
+130:     return m_eval_egroups.size ();
+131: }
+132: 
+133: unsigned int evals_t::total_count () const
+134: {
+135:     return m_total_count;
+136: }
+137: 
+138: int64_t evals_t::cutline () const
+139: {
+140:     return m_cutline;
+141: }
+142: 
+143: int64_t evals_t::set_cutline (int64_t cutline)
+144: {
+145:     int64_t rc = m_cutline;
+146:     m_cutline = cutline;
+147:     return rc;
+148: }
+149: 
+150: unsigned int evals_t::best_k () const
+151: {
+152:     return m_best_k;
+153: }
+154: 
+155: unsigned int evals_t::best_i () const
+156: {
+157:     return m_best_i;
+158: }
+159: 
+160: int evals_t::merge (const evals_t &o)
+161: {
+162:     if (m_cutline != o.m_cutline || m_resrc_type != o.m_resrc_type) {
+163:         errno = EINVAL;
+164:         return -1;
+165:     }
+166:     m_qual_count += o.m_qual_count;
+167:     m_total_count += o.m_total_count;
+168:     m_cutline = o.m_cutline;
+169:     m_eval_egroups.insert (m_eval_egroups.end (),
+170:                            o.m_eval_egroups.begin (),
+171:                            o.m_eval_egroups.end ());
+172:     return 0;
+173: }
+174: 
+175: void evals_t::eval_egroups_iter_reset ()
+176: {
+177:     m_iter_cur_reset = true;
+178: }
+179: 
+180: std::vector<eval_egroup_t>::iterator evals_t::eval_egroups_iter_next ()
+181: {
+182:     if (m_iter_cur_reset) {
+183:         m_iter_cur = m_eval_egroups.begin ();
+184:         m_iter_cur_reset = false;
+185:     } else if (m_iter_cur != m_eval_egroups.end ()) {
+186:         m_iter_cur++;
+187:     }
+188:     return m_iter_cur;
+189: }
+190: 
+191: std::vector<eval_egroup_t>::iterator evals_t::eval_egroups_end ()
+192: {
+193:     return m_eval_egroups.end ();
+194: }
+195: 
+196: }  // namespace detail
+197: }  // namespace resource_model
+198: }  // namespace Flux
+199: 
+200: /*
+201:  * vi:tabstop=4 shiftwidth=4 expandtab
+202:  */
+
+(End of file - total 202 lines)
+</content>
+```
+
+---
+
+## Assistant (Plan · alias-code · 104.8s)
+
+_Thinking:_
+
+Now I've got the full picture of `scoring_api_t`. Let me write the explanation.
+
+The role of `scoring_api_t`: this is the "blackboard"/data structure that gets passed to policy callbacks during DFU traversal. It represents, for a given subtree (or the entire graph at the root), the candidate pool of available resources grouped by (subsystem, resource type), along with the scoring/selection state. It is not a policy itself — it's a container the policy reads from and writes to.
+
+Main components (scoring_api.hpp:28-105):
+
+1. **Core storage**: `interned_key_vec<subsystem_t, std::map<resource_type_t, detail::evals_t>> m_ssys_map` (line 101).
+   - Outer: a flat vector indexed by the interned subsystem ID (O(1)).
+   - Inner: a map from resource type → `evals_t`.
+   - `evals_t` (edge_eval_api.hpp:48) holds, for one (subsystem, type):
+     - `m_eval_egroups`: a vector of `eval_egroup_t` — the actual candidates. Each egroup = `{score, count, needs, exclusive, root, edges[]}`, where edges are the graph edges that this group represents (each `eval_edg_t` has count/needs/exclusive/edge).
+     - `m_cutline`: the minimum score required for an egroup to count as "qualified" (default 0).
+     - `m_qual_count`: sum of `count` over egroups whose score exceeds the cutline — the "how many are available" number that the policy checks.
+     - `m_total_count`: sum of count over all egroups (including unqualified ones).
+     - `m_best_k`, `m_best_i`: post-selection bookkeeping — how many units were chosen, and the number of leading egroups that cover them (after the sort in `choose_best_k`).
+
+2. **Read queries** (per (s, r)):
+   - `qualified_count` — number of available units above the cutline
+   - `qualified_granules` — number of egroups (not units) — i.e., "how many distinct groups/candidates"
+   - `total_count` — all units including below the cutline
+   - `cutline` / `set_cutline` — score threshold; a policy can raise the bar (e.g., only accept candidates with score >= X)
+   - `at(s,r,i)`, iterators (`eval_egroups_iter_reset/next/end`) — direct access to egroups (used in slot packing at dfu_impl.cpp:715, and in `enforce` at dfu_impl.cpp:1105)
+   - `best_k()` / `best_i()` — the selection bookkeeping after `choose_*`
+
+3. **Write operations**:
+   - `add(s, r, egroup)` — the traverser adds a candidate (per successful child visit, dfu_impl.cpp:492; per slot, line 779). Updates qual/total counts based on cutline.
+   - `merge(o)` — recursively merges another scoring_api's egroups into this one (scoring_api.cpp:105). Used by `resolve()` when a subtree is not hierarchically constrained: children's candidates bubble up to the parent's dfu so ancestors can choose (dfu_impl.cpp:1078).
+   - `resrc_types(s, v)` — which types are present under subsystem s.
+   - `is_contained(s, r)` — whether type r exists under subsystem s.
+
+4. **Selection (the "scoring" part)** — templated, in the header:
+   - `choose_accum_best_k(s, r, k, comp, accum)`: sort r's egroups with `comp` (default `fold::greater` = descending score), greedily assign `needs` to the leading egroups until k units are covered, record `m_best_k=k`, `m_best_i=i`, then fold the chosen egroups' scores with `accum` (default `fold::plus`) and return the aggregate. Also sets `m_hier_constrain_now = true` — a flag meaning "this pool has a committed selection; the traverser must enforce it now rather than merge it upward".
+   - `choose_accum_all`: same thing with k = qualified_count (take everything).
+   - `transform(s, r, out_it, uop)`: `std::transform` over the egroups — used in the locality policy to project each egroup's score into a boost interval set before sorting.
+   - The returned aggregate is the summed score of the chosen candidates (which the policy may use as a signal, though the locality policy discards it in favor of the vertex ID).
+
+5. **Per-vertex pass-through state** (not per (s,r)):
+   - `overall_score` / `set_overall_score` (lines 123-131, with a comment "temporary space such that a child vertex visitor can pass the info to the parent vertex") — the policy sets this in `dom_finish_vtx`; the traverser then (a) uses it as the score of the egroup that wraps this vertex for the parent (dfu_impl.cpp:490: `eval_egroup_t egrp (dfu.overall_score (), ...)`), (b) propagates it upward via `to_parent.set_overall_score (dfu.overall_score ())` (dfu_impl.cpp:845).
+   - `avail` / `set_avail` — the number of resources available at this vertex from the planner's schedule (`planner_avail_resources_during`, dfu_impl.cpp:825, 844); used as the egroup count for the parent.
+
+6. **`hier_constrain_now()`** — a single bool, set by any `choose_*` call; checked by `resolve()` (dfu_impl.cpp:1074): true → enforce the selection in place (allocate edges, don't merge upward); false → merge into parent. This is the switch that decides where in the hierarchy the allocation decision gets locked in.
+
+How it's used (lifecycle), to tie it together:
+- `dom_dfv` (dfu_impl.cpp:785-861) creates a fresh local `scoring_api_t dfu` per vertex visit.
+- `explore` recursively visits children; each successful child contributes one egroup (score = child's overall score, count = child's avail) to this vertex's dfu (lines 487-492).
+- `dom_finish_vtx` (policy) queries the counts, selects via `choose_*`, sets the overall score.
+- `resolve` enforces or merges into `to_parent`.
+- At the root: `resolve_graph` calls `dom_finish_graph` on the accumulated root dfu, then `has_root`/`has_remaining`/`enforce_constrained` to finalize.
+- `dom_slot` uses a separate `dfu_slot` instance for packing slot contents (iterating egroups to form whole slots, dfu_impl.cpp:715-779).
+
+Design notes / points to be aware of:
+- One instance per vertex visit (stack-allocated during traversal) — so it's a "message passing" container, not a global store.
+- `m_hier_constrain_now` is not reset once set — a minor quirk.
+- `m_best_i` counts the number of egroups, not units.
+- The cutline defaults to 0, so in practice everything with score > 0 is qualified; the cutline is the mechanism for a policy to impose a quality floor.
+- `merge` requires the same cutline and resrc_type (edge_eval_api.cpp:162).
+
+Now, in plan mode this is a pure explanation. I'll keep the structure but be reasonably concise. Use file:line references.
+
+
+
+
+## What `scoring_api_t` does
+
+`scoring_api_t` (resource/evaluators/scoring_api.hpp:28) is **the data container that gets passed to your match-policy callbacks** — the object named `dfu` in `dom_finish_vtx`/`dom_finish_graph`. It is not a policy itself; it's a per-subtree "candidate pool + selection state" blackboard that the traverser fills and the policy reads/decides on. Think of it as a map:
+
+```
+subsystem → resource_type → evals_t
+```
+
+where `evals_t` (edge_eval_api.hpp:48) holds, for one (subsystem, type):
+
+- `m_eval_egroups` — the candidate list: a vector of `eval_egroup_t {score, count, needs, exclusive, root, edges[]}` (edge_eval_api.hpp:32). An egroup bundles one or more graph edges (`eval_edg_t {count, needs, exclusive, edge}`) that together supply `count` units of that resource, with a `score` expressing how good that group is.
+- `m_cutline` — score floor; only egroups with `score > cutline` count as *qualified* (default 0, so by default everything is qualified).
+- `m_qual_count` / `m_total_count` — running sums of `count` over qualified / all egroups (edge_eval_api.cpp:109-116).
+- `m_best_k` / `m_best_i` — bookkeeping written by selection: how many units were chosen, and how many leading egroups cover them.
+
+The outer level is an `interned_key_vec` (flat array indexed by the interned subsystem ID → O(1)), the inner is a `map<resource_type_t, evals_t>` (scoring_api.hpp:101).
+
+### The API, by category
+
+**Reads (per subsystem, type):**
+- `qualified_count` — units available above the cutline; the policy feeds this to `calc_count` to learn how many units it can actually request
+- `qualified_granules` — number of *egroups* (distinct candidate groups), not units
+- `total_count` — all units including below the cutline
+- `cutline` / `set_cutline` — get/set the quality floor; this is how a policy would say "only accept candidates scoring ≥ X"
+- `at(s,r,i)`, and the `eval_egroups_iter_reset/next/end` iterator trio — direct access to individual egroups (used for slot packing, dfu_impl.cpp:715, and by `enforce`, dfu_impl.cpp:1105)
+- `best_k()` / `best_i()` — the selection bookkeeping after a `choose_*`
+
+**Writes:**
+- `add(s, r, egroup)` — the *traverser* adds candidates: one egroup per successfully visited child vertex (dfu_impl.cpp:492) or per packed slot (dfu_impl.cpp:779)
+- `merge(o)` — recursively splice another `scoring_api_t`'s egroups in (scoring_api.cpp:105). This is how candidates **bubble up**: in `resolve()` (dfu_impl.cpp:1070-1082), if a subtree made *no* selection, its dfu is merged into the parent's, so an ancestor can choose from a wider pool
+- `resrc_types(s, v)` — which types are present; `is_contained(s, r)` — existence check
+
+**Selection — the "scoring" part (templated, in the header):**
+- `choose_accum_best_k(s, r, k, comp, accum)` (scoring_api.hpp:61): sort that type's egroups with `comp` (default `fold::greater` = score descending), greedily set `needs` on the leading egroups until `k` units are covered, record `best_k`/`best_i`, fold the chosen egroups' scores with `accum` (default `fold::plus`) and return the aggregate. Crucially it also sets `m_hier_constrain_now = true` (line 71).
+- `choose_accum_all` — same with k = qualified_count (take everything; used for slot resources)
+- `transform(s, r, out_it, uop)` — a plain `std::transform` over the egroups; the locality policy uses it to project scores into a Boost interval set before sorting (dfu_match_locality.cpp:62)
+
+**Per-vertex pass-through state** (the comment at scoring_api.cpp:121 calls it "temporary space such that a child vertex visitor can pass the info to the parent"):
+- `overall_score` / `set_overall_score` — the policy sets this in `dom_finish_vtx`; the traverser then (a) uses it as the *score of the egroup that wraps this vertex* for the parent (dfu_impl.cpp:490) and (b) propagates it upward (dfu_impl.cpp:845). This is how a subtree's goodness signal reaches its ancestors.
+- `avail` / `set_avail` — how many resources the planner says are free at this vertex during the job's interval (dfu_impl.cpp:825, 844); becomes the parent's egroup `count`.
+
+### The key switch: `hier_constrain_now()`
+
+Any `choose_*` call flips this bool, and `resolve()` (dfu_impl.cpp:1070) acts on it — this is where the API meets the algorithm:
+
+- **true** (you selected) → `enforce()`: the chosen egroups' edges get marked allocated in the graph (`set_for_trav_update`, dfu_impl.cpp:1110) and the pool is *not* merged up. The decision is locked in at this level.
+- **false** (you only scored) → `to_parent.merge(dfu)`: your candidates pass upward and an ancestor decides.
+
+So the API's central design idea: **a policy either commits locally (choose → enforce) or defers (score → merge up)**, at every level of the hierarchy.
+
+### Lifecycle in a traversal
+
+1. `dom_dfv` creates a **fresh** `scoring_api_t dfu` per vertex visit (dfu_impl.cpp:800) — it's a message-passing container on the recursion stack, not a global store.
+2. `explore` visits children; each successful child contributes one egroup (`score` = child's overall score, `count` = child's avail) to this vertex's dfu (dfu_impl.cpp:487-492).
+3. Your `dom_finish_vtx` queries counts, calls `choose_*` (or not), sets `overall_score`.
+4. `resolve` enforces or merges into `to_parent`.
+5. At the root, `resolve_graph` calls `dom_finish_graph` on the accumulated root pool, then `has_root`/`has_remaining`/`enforce_constrained` commit the final selections (dfu_impl.cpp:1049-1068).
+6. Slot packing uses a separate throwaway `dfu_slot` instance (dfu_impl.cpp:736).
+
+### Quirks to know
+
+- `m_hier_constrain_now` is never reset once set, and `m_best_i` counts egroups, not units.
+- `merge` requires both sides to have the same cutline and resource type or it returns `EINVAL` (edge_eval_api.cpp:162).
+- `choose_best_k` returns the *old* `best_k` value (edge_eval_api.hpp:95) — the return of `choose_accum_best_k` is the accumulated score only when selection succeeded; check for `-1` before using it.
+- `at()` can throw `out_of_range` (hence the try/catch in `enforce`, dfu_impl.cpp:1144).
+
+For writing your own policy: treat `dfu` as "what's available under me" (`qualified_count`), decide with `choose_*` + your comparator (commit) or just `set_overall_score` (defer), and remember the return-`-1`/`EBUSY` convention for "can't satisfy here."
+
+
+
+
+
+---
+
+## User
+
+what does dfu.transform do?
+
+---
+
+## Assistant (Plan · alias-code · 61.4s)
+
+_Thinking:_
+
+User's question: What does `dfu.transform` do?
+
+I've already read the relevant code:
+
+Inside scoring_api.hpp (lines 93–98):
+```cpp
+template<class output_it, class unary_op>
+output_it transform (subsystem_t s, resource_type_t r, output_it o_it, unary_op uop)
+{
+    auto &res_evals = m_ssys_map[s][r];
+    return res_evals.transform<output_it, unary_op> (o_it, uop);
+}
+```
+
+And in edge_eval_api.hpp (lines 111–115):
+```cpp
+template<class output_it, class unary_op>
+output_it transform (output_it o_it, unary_op uop)
+{
+    return std::transform (m_eval_egroups.begin (), m_eval_egroups.end (), o_it, uop);
+}
+```
+
+In other words, `dfu.transform(s, r, out_it, uop)` is literally just a `std::transform` over the egroup vector for (subsystem, type): it applies the unary operator `uop` to each `eval_egroup_t` and writes the results to the output iterator `o_it`. It does not modify the pool.
+
+In the locality policy (dfu_match_locality.cpp:62–65):
+```cpp
+dfu.transform (subsystem,
+               resource.type,
+               boost::icl::inserter (comp.ivset, comp.ivset.end ()),
+               fold::to_interval);
+```
+
+Here:
+- `s` = subsystem, `r` = resource.type
+- `o_it` = `boost::icl::inserter (comp.ivset, comp.ivset.end ())` — a Boost ICL inserter iterator that inserts into `comp.ivset` (the interval_set member of the interval_greater comparator)
+- `uop` = `fold::to_interval` (fold.hpp:58): takes an `eval_egroup_t` and returns a singleton closed interval `[ev.score, ev.score]`
+
+So the effect is: for each candidate egroup of that resource type, insert a singleton interval at its score position into the comparator's interval set. Since interval_set merges adjacent singletons on a discrete domain (int64_t), contiguous scores (i.e., contiguous resource IDs, since score = MATCH_MET + id + 1) collapse into a single merged interval.
+
+Why is this needed? The `interval_greater` comparator (fold.hpp:36–42) is stateful: at comparison time it looks up `ivset.find(a.score)` and compares the merged intervals that contain the two scores. Before the sort inside `choose_best_k` (std::sort), the set must be populated with all scores, so that `find()` returns the *merged* interval rather than a singleton. This transform is the population step, and it must happen before `choose_accum_best_k` (dfu_match_locality.cpp:66).
+
+Key properties to state:
+1. It is a general-purpose projection utility: std::transform over the egroups of one (subsystem, type). Generic over output iterator and unary operator; returns the past-the-end output iterator (as std::transform does).
+2. It does not modify the candidate pool or selection state (no changes to best_k, no hier_constrain flag) — it just reads egroups and writes externally.
+3. In the only current use case, it's a setup step for the stateful interval comparator: materializing all scores into a shared interval set so that the subsequent sort can group egroups by contiguous score/ID runs.
+4. Caveats: the interval set accumulates across resource types within the dom_finish_graph loop (comp is reused and is never cleared), and transform inserts every egroup (qualified or not — all elements of m_eval_egroups).
+
+I can answer directly from what I've already read. No new tool calls needed. Plan mode: read-only explanation is fine.
+
+Keep it concise.
+
+
+
+
+`dfu.transform` is a thin projection helper — literally a `std::transform` over the candidate egroups of one (subsystem, type).
+
+**Definition** (scoring_api.hpp:93-98 → edge_eval_api.hpp:111-115):
+
+```cpp
+template<class output_it, class unary_op>
+output_it transform (subsystem_t s, resource_type_t r, output_it o_it, unary_op uop)
+{
+    auto &res_evals = m_ssys_map[s][r];
+    return res_evals.transform<output_it, unary_op> (o_it, uop);
+}
+// which is just:
+//   return std::transform (m_eval_egroups.begin (), m_eval_egroups.end (), o_it, uop);
+```
+
+So: for every `eval_egroup_t` in the pool for `(s, r)`, apply `uop` and write the result through `o_it`. It **reads** the pool but changes nothing in it — no selection, no `best_k` bookkeeping, no `hier_constrain_now` flag. It returns the end output iterator, like `std::transform`.
+
+**Its one real use** is the locality policy's setup step (dfu_match_locality.cpp:62-65):
+
+```cpp
+dfu.transform (subsystem,
+               resource.type,
+               boost::icl::inserter (comp.ivset, comp.ivset.end ()),  // o_it
+               fold::to_interval);                                     // uop
+```
+
+- `fold::to_interval` (fold.hpp:58) maps an egroup → a singleton closed interval `[ev.score, ev.score]`.
+- `o_it` is a Boost ICL inserter writing into `comp.ivset` — the `interval_set<int64_t>` **member of the stateful `interval_greater` comparator**.
+
+Why it's needed: `interval_greater` (fold.hpp:36-42) doesn't compare raw scores — at sort time it calls `ivset.find(a.score)` and compares the *merged interval containing* each score. That only works if the set is already populated with **all** scores, because `interval_set` merges adjacent discrete singletons on insertion: scores 2,3,4,5 (i.e. contiguous resource IDs, since score = `MATCH_MET + id + 1`) collapse into one interval `[2,5]`. `transform` is that population step and must run *before* `choose_accum_best_k` (line 66), whose `std::sort` then sees egroups in the same contiguous run as equivalent and orders runs against each other.
+
+Two caveats if you reuse the pattern:
+- It inserts **all** egroups of the type (qualified or not — the cutline isn't consulted).
+- The `comp` object (and its `ivset`) is shared across the loop's resource types in `dom_finish_graph` and never cleared, so one type's scores can merge with another type's intervals — a quirk of this policy, not of `transform` itself.
+
+For your own policy, you'd use `transform` whenever you need to pre-project the candidate scores into external state your comparator consults (e.g. building a lookup table); for pure score-ordering policies, `fold::greater`/`fold::less` need no such setup and you can skip it entirely.
+
+
 
 ---
 

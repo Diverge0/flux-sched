@@ -30,6 +30,8 @@ const char *const X_CHECKER_JOBS_STR = "jobs";
 const int64_t X_CHECKER_NJOBS = 0x40000000;
 
 constexpr uint64_t subsystem_id{0};
+// this is a tag type. it is only used to differentiate two template instances
+// dense_storage<subsystem_tag, uint8_t> gets a different intern table than dense_storage<resource_type_tag, uint16_t>
 struct subsystem_tag {};
 using subsystem_t = intern::interned_string<intern::dense_storage<subsystem_tag, uint8_t>>;
 extern subsystem_t containment_sub;

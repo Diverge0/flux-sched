@@ -71,19 +71,24 @@ int greater_interval_first_t::dom_finish_graph (
     for (auto &resource : resources) {
         // how many of the resource type are available
         unsigned int qc = dfu.qualified_count (subsystem, resource.type);
-        // calculate the count of the resource that should be allocated based on number of available resources and the desired resource count (min, max, ...) in the JobSpec
+        // calculate the count of the resource that should be allocated based on number of available resources 
+        // and the desired resource count (min, max, ...) in the JobSpec
         unsigned int count = calc_count (resource, qc);
         // resources not available
         if (count == 0) {
             score = MATCH_UNMET;
             break;
         }
+
+        // some sorting, transforming on the dfu?
         dfu.transform (subsystem,
                        resource.type,
                        boost::icl::inserter (comp.ivset, comp.ivset.end ()),
                        fold::to_interval);
         dfu.choose_accum_best_k (subsystem, resource.type, count, comp);
     }
+    // score on the root node doesn't really have a meening beyond MATCH_MET or MATCH_UNMET. 
+    // Per definition, there is no alternative top nodeWe don't really have a different cluster to choose from...
     dfu.set_overall_score (score);
     if (score != MATCH_MET) {
         errno = EBUSY;
@@ -101,6 +106,7 @@ int greater_interval_first_t::dom_finish_slot (subsystem_t subsystem, scoring_ap
     return 0;
 }
 
+// called on each postorder visit of a vertex in the dominant subsystem aka the important part
 int greater_interval_first_t::dom_finish_vtx (vtx_t u,
                                               subsystem_t subsystem,
                                               const std::vector<Flux::Jobspec::Resource> &resources,
@@ -115,26 +121,40 @@ int greater_interval_first_t::dom_finish_vtx (vtx_t u,
             continue;
 
         // jobspec resource type matches with the visiting vertex
+        // c_resource: child resource. Whit is read literally: Node with Cores. With is a vector of children
+        // if we are currently at a leaf note (e.g a core), resurce.with is empty ant this section gets skipped
         for (auto &c_resource : resource.with) {
             // test children resource count requirements
             const auto &c_type = resource_type_t{c_resource.type};
+            // how many of the resource type are available
             unsigned int qc = dfu.qualified_count (subsystem, c_type);
+            // calculate the count of the resource that should be allocated based on number of available resources and the desired resource count (min, max, ...) in the JobSpec
             unsigned int count = calc_count (c_resource, qc);
+            // requested resources not available
             if (count == 0) {
                 score = MATCH_UNMET;
                 break;
             }
+
+            // look at all the core candidates in the pool, sort the best-score first, take 4
+            // here it might be relevant for me to score the cores according to my spread pattern
             dfu.choose_accum_best_k (subsystem, c_type, count);
         }
     }
 
+    // set the score for the current node
     overall = (score == MATCH_MET) ? (score + g[u].id + 1) : score;
     dfu.set_overall_score (overall);
+
+    // no idea why this is necessary, ignore for now
     decr ();
+
+    // no match found
     if (score != MATCH_MET) {
         errno = EBUSY;
         return -1;
     }
+    // success!
     return 0;
 }
 

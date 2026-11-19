@@ -682,6 +682,7 @@ class dfu_impl_t {
     unsigned int m_postorder = 0;
     resource_graph_t *m_graph = nullptr;
     std::shared_ptr<resource_graph_db_t> m_graph_db = nullptr;
+    // The match policy callback object
     std::shared_ptr<dfu_match_cb_t> m_match = nullptr;
     expr_eval_api_t m_expr_eval;
     std::string m_err_msg = "";

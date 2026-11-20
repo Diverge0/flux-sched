@@ -1,0 +1,46 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug resource-query",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/default/resource/utilities/resource-query",
+            "args": "${input:resourceQueryArgs}",
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/resource/utilities",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "preLaunchTask": "build resource-query"
+        },
+        {
+            "name": "Debug resource-query (debug build)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/debug/resource/utilities/resource-query",
+            "args": "${input:resourceQueryArgs}",
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "preLaunchTask": "build resource-query (debug build)"
+        },
+        {
+            "name": "Attach to resource-query",
+            "type": "cppdbg",
+            "request": "attach",
+            "program": "${command:pickProcess}",
+            "MIMode": "gdb"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "resourceQueryArgs",
+            "type": "promptString",
+            "description": "Arguments for resource-query (e.g. -d -L /path/to/graph.graphml)",
+            "default": ""
+        }
+    ]
+}

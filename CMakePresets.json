@@ -21,6 +21,16 @@
       "vendor": {}
     },
     {
+      "name": "debug",
+      "displayName": "Debug (unoptimized)",
+      "description": "Unoptimized debug build using Ninja generator",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build/debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
       "name": "asan",
       "displayName": "Debug with address sanitizer",
       "description": "ASAN build using Ninja generator",
@@ -56,6 +66,10 @@
     {
       "name": "default",
       "configurePreset": "default"
+    },
+    {
+      "name": "debug",
+      "configurePreset": "debug"
     },
     {
       "name": "rpm",

@@ -124,7 +124,7 @@ compile_commands.json
 compile_flags.txt
 
 # local editor config dirs
-.vscode
+# .vscode
 .idea
 .clangd
 .cache

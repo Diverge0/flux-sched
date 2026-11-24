@@ -1,0 +1,128 @@
+/*****************************************************************************\
+ * Copyright 2014 Lawrence Livermore National Security, LLC
+ * (c.f. AUTHORS, NOTICE.LLNS, LICENSE)
+ *
+ * This file is part of the Flux resource manager framework.
+ * For details, see https://github.com/flux-framework.
+ *
+ * SPDX-License-Identifier: LGPL-3.0
+\*****************************************************************************/
+
+extern "C" {
+#if HAVE_CONFIG_H
+#include <config.h>
+#endif
+}
+
+#include "resource/policies/dfu_match_spread.hpp"
+
+namespace Flux {
+namespace resource_model {
+
+node_spread_t::node_spread_t ()
+{
+}
+
+node_spread_t::node_spread_t (const std::string &name) : dfu_match_cb_t (name)
+{
+}
+
+node_spread_t::node_spread_t (const node_spread_t &o)
+    : dfu_match_cb_t (o)
+{
+}
+
+node_spread_t &node_spread_t::operator= (const node_spread_t &o)
+{
+    dfu_match_cb_t::operator= (o);
+    return *this;
+}
+
+node_spread_t::~node_spread_t ()
+{
+}
+
+int node_spread_t::dom_finish_graph (subsystem_t subsystem,
+                                     const std::vector<Flux::Jobspec::Resource> &resources,
+                                     const resource_graph_t &g,
+                                     scoring_api_t &dfu)
+{
+    using namespace boost::icl;
+    int score = MATCH_MET;
+    fold::interval_greater comp;
+
+    for (auto &resource : resources) {
+        unsigned int qc = dfu.qualified_count (subsystem, resource.type);
+        unsigned int count = calc_count (resource, qc);
+        if (count == 0) {
+            score = MATCH_UNMET;
+            break;
+        }
+
+        dfu.transform (subsystem,
+                       resource.type,
+                       boost::icl::inserter (comp.ivset, comp.ivset.end ()),
+                       fold::to_interval);
+        dfu.choose_accum_best_k (subsystem, resource.type, count, comp);
+    }
+    dfu.set_overall_score (score);
+    if (score != MATCH_MET) {
+        errno = EBUSY;
+        return -1;
+    }
+    return 0;
+}
+
+int node_spread_t::dom_finish_slot (subsystem_t subsystem, scoring_api_t &dfu)
+{
+    std::vector<resource_type_t> types;
+    dfu.resrc_types (subsystem, types);
+    for (auto &type : types)
+        dfu.choose_accum_all (subsystem, type);
+    return 0;
+}
+
+int node_spread_t::dom_finish_vtx (vtx_t u,
+                                   subsystem_t subsystem,
+                                   const std::vector<Flux::Jobspec::Resource> &resources,
+                                   const resource_graph_t &g,
+                                   scoring_api_t &dfu)
+{
+    int64_t score = MATCH_MET;
+    int64_t overall;
+
+    for (auto &resource : resources) {
+        if (resource_type_t{resource.type} != g[u].type)
+            continue;
+
+        for (auto &c_resource : resource.with) {
+            const auto &c_type = resource_type_t{c_resource.type};
+            unsigned int qc = dfu.qualified_count (subsystem, c_type);
+            unsigned int count = calc_count (c_resource, qc);
+            if (count == 0) {
+                score = MATCH_UNMET;
+                break;
+            }
+
+            dfu.choose_accum_best_k (subsystem, c_type, count);
+        }
+    }
+
+    overall = (score == MATCH_MET) ? (score + g[u].id + 1) : score;
+    dfu.set_overall_score (overall);
+
+    decr ();
+
+    if (score != MATCH_MET) {
+        errno = EBUSY;
+        return -1;
+    }
+    return 0;
+}
+
+}  // namespace resource_model
+}  // namespace Flux
+
+/*
+ * vi:tabstop=4 shiftwidth=4 expandtab
+ */

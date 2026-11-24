@@ -145,6 +145,9 @@ std::shared_ptr<dfu_match_cb_t> create_match_cb (const std::string &policy_reque
     }
     std::shared_ptr<dfu_match_cb_t> matcher = nullptr;
     try {
+        if (policy_requested == "spread"){
+            matcher = std::make_shared<node_spread_t> ();
+        }
         if (policy_requested == "locality") {
             matcher = std::make_shared<greater_interval_first_t> ();
         }

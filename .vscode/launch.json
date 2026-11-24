@@ -6,41 +6,38 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/default/resource/utilities/resource-query",
-            "args": "${input:resourceQueryArgs}",
+            "args": [
+                "-L", "conf/default",
+                "-F", "pretty_simple",
+                "--match-subsystems=CA",
+                "--match-policy=locality"
+            ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/resource/utilities",
             "environment": [],
-            "externalConsole": false,
+            "externalConsole": true,
             "MIMode": "gdb",
             "preLaunchTask": "build resource-query"
         },
         {
             "name": "Debug resource-query (debug build)",
-            "type": "cppdbg",
+            "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/build/debug/resource/utilities/resource-query",
-            "args": "${input:resourceQueryArgs}",
-            "stopAtEntry": false,
+            "args": [
+                "-L", "resource-query-test/benchmark.graphml",
+                "-F", "pretty_simple",
+                "--match-subsystems=CA",
+                "--match-policy=locality"
+            ],
             "cwd": "${workspaceFolder}",
-            "environment": [],
-            "externalConsole": false,
-            "MIMode": "gdb",
             "preLaunchTask": "build resource-query (debug build)"
         },
         {
             "name": "Attach to resource-query",
-            "type": "cppdbg",
+            "type": "lldb",
             "request": "attach",
             "program": "${command:pickProcess}",
-            "MIMode": "gdb"
-        }
-    ],
-    "inputs": [
-        {
-            "id": "resourceQueryArgs",
-            "type": "promptString",
-            "description": "Arguments for resource-query (e.g. -d -L /path/to/graph.graphml)",
-            "default": ""
         }
     ]
 }
